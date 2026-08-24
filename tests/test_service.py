@@ -2,7 +2,7 @@ import zipfile
 
 import pytest
 
-from egrid.models import Geometry, ModelAsset, Primitive, PrimitiveType
+from egrid.models import Geometry, ModelAsset, ModelQuery, Primitive, PrimitiveType
 from egrid.render import render_model_svg, sample_model_pointcloud
 from egrid.service import ModelService
 
@@ -13,6 +13,19 @@ def service(tmp_path):
         db_path=str(tmp_path / "test.db"),
         storage_dir=str(tmp_path / "files"),
     )
+
+
+def test_category_filter(service):
+    service.create_model({"name": "主变", "category": "变电"})
+    service.create_model({"name": "导线", "category": "输电"})
+
+    models = service.list_models(ModelQuery(category="变电"))
+    assert [m.name for m in models] == ["主变"]
+
+    assert service.list_categories() == ["变电", "输电", "电缆", "配电"]
+    service.add_category("直流")
+    with pytest.raises(ValueError):
+        service.add_category("直流")
 
 
 def test_crud(service):

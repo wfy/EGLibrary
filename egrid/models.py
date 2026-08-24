@@ -113,6 +113,7 @@ class ModelAsset(BaseModel):
     id: str = Field(default_factory=new_guid)
     name: str
     code: str = ""                     # GB/T 51061 / 物料编码
+    category: str = ""                 # 业务大类：变电/输电/电缆/配电（可扩展）
     model_type: ModelType = ModelType.DEVICE
     stage: ModelStage = ModelStage.COMMON
     specialty: Specialty = Specialty.ELECTRICAL_PRIMARY
@@ -136,6 +137,7 @@ class ModelAsset(BaseModel):
 
 class ModelQuery(BaseModel):
     keyword: Optional[str] = None
+    category: Optional[str] = None
     model_type: Optional[ModelType] = None
     stage: Optional[ModelStage] = None
     specialty: Optional[Specialty] = None

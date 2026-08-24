@@ -24,6 +24,26 @@ def test_health(client):
     assert resp.json()["status"] == "ok"
 
 
+def test_categories_api(client):
+    resp = client.get("/api/categories")
+    assert resp.status_code == 200
+    assert [c["name"] for c in resp.json()] == ["变电", "输电", "电缆", "配电"]
+
+    resp = client.post("/api/categories", json={"name": "直流"})
+    assert resp.status_code == 201
+
+    # 重名拒绝
+    resp = client.post("/api/categories", json={"name": "变电"})
+    assert resp.status_code == 400
+
+
+def test_index_page(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert 'id="model-list"' in resp.text
+
+
 def test_crud_api(client):
     resp = client.post("/api/models", json={"name": "隔离开关", "voltage_level": "220kV"})
     assert resp.status_code == 201

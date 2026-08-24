@@ -100,6 +100,16 @@ class ModelService:
     def list_versions(self, model_id: str) -> List[ModelVersion]:
         return self.repo.list_versions(model_id)
 
+    # ---------- 分类 ----------
+    def list_categories(self) -> List[str]:
+        return self.repo.list_categories()
+
+    def add_category(self, name: str) -> str:
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("分类名称不能为空")
+        return self.repo.add_category(name)
+
     # ---------- 文件存储 ----------
     def _file_path(self, model_id: str, relative_path: str) -> Path:
         # 防止路径穿越

@@ -5,6 +5,9 @@ import tempfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from pathlib import Path
+from typing import Dict, List, Optional
+
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -12,6 +15,8 @@ from pydantic import BaseModel
 from .models import ModelAsset, ModelQuery, ModelVersion, PointCloudSample
 from .render import render_model_svg, sample_model_pointcloud
 from .service import ModelService
+
+INDEX_HTML = Path(__file__).parent / "static" / "index.html"
 
 app = FastAPI(
     title="电力矢量模型库 API",
@@ -21,6 +26,12 @@ app = FastAPI(
 
 # 默认服务实例；生产可替换为依赖注入
 service = ModelService()
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    """Web 单页操作流入口。"""
+    return FileResponse(INDEX_HTML, media_type="text/html")
 
 
 class VersionCreate(BaseModel):
@@ -39,6 +50,7 @@ def health():
 @app.get("/api/models", response_model=List[ModelAsset])
 def list_models(
     keyword: Optional[str] = None,
+    category: Optional[str] = None,
     model_type: Optional[str] = None,
     stage: Optional[str] = None,
     specialty: Optional[str] = None,
@@ -50,6 +62,7 @@ def list_models(
 ):
     query = ModelQuery(
         keyword=keyword,
+        category=category,
         model_type=model_type,
         stage=stage,
         specialty=specialty,
@@ -60,6 +73,24 @@ def list_models(
         limit=limit,
     )
     return service.list_models(query)
+
+
+class CategoryCreate(BaseModel):
+    name: str
+
+
+@app.get("/api/categories")
+def list_categories():
+    return [{"name": n} for n in service.list_categories()]
+
+
+@app.post("/api/categories", status_code=201)
+def add_category(payload: CategoryCreate):
+    try:
+        service.add_category(payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"name": payload.name.strip()}
 
 
 @app.post("/api/models", response_model=ModelAsset, status_code=201)

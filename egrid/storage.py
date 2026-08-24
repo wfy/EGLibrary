@@ -84,13 +84,43 @@ class ModelRepository:
                     data TEXT DEFAULT '{}',
                     FOREIGN KEY(model_id) REFERENCES models(id) ON DELETE CASCADE
                 );
+
+                CREATE TABLE IF NOT EXISTS categories (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE
+                );
                 """
             )
+            # 旧库迁移：models 表补 category 列
+            cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
+            if "category" not in cols:
+                self._conn.execute("ALTER TABLE models ADD COLUMN category TEXT DEFAULT ''")
+            # 分类预置
+            existing = self._conn.execute("SELECT COUNT(*) AS c FROM categories").fetchone()["c"]
+            if not existing:
+                self._conn.executemany(
+                    "INSERT INTO categories (name) VALUES (?)",
+                    [("变电",), ("输电",), ("电缆",), ("配电",)],
+                )
 
     def close(self) -> None:
         if self._conn:
             self._conn.close()
             self._conn = None
+
+    def list_categories(self) -> List[str]:
+        rows = self._conn.execute("SELECT name FROM categories ORDER BY id").fetchall()
+        return [r["name"] for r in rows]
+
+    def add_category(self, name: str) -> str:
+        try:
+            with self._conn:
+                self._conn.execute(
+                    "INSERT INTO categories (name) VALUES (?)", (name,)
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"分类已存在: {name}") from exc
+        return name
 
     def create_model(self, asset: ModelAsset) -> ModelAsset:
         asset.id = asset.id or new_guid()
@@ -99,15 +129,16 @@ class ModelRepository:
             self._conn.execute(
                 """
                 INSERT INTO models (
-                    id, name, code, model_type, stage, specialty, voltage_level,
+                    id, name, code, category, model_type, stage, specialty, voltage_level,
                     version, description, tags, attributes, files, geometry,
                     parent_id, level, created_at, updated_at, created_by, extra
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset.id,
                     asset.name,
                     asset.code,
+                    asset.category,
                     asset.model_type.value,
                     asset.stage.value,
                     asset.specialty.value,
@@ -143,6 +174,9 @@ class ModelRepository:
             sql += " AND (name LIKE ? OR code LIKE ? OR description LIKE ?)"
             like = f"%{q.keyword}%"
             params.extend([like, like, like])
+        if q.category:
+            sql += " AND category = ?"
+            params.append(q.category)
         if q.model_type:
             sql += " AND model_type = ?"
             params.append(q.model_type.value)
@@ -180,7 +214,7 @@ class ModelRepository:
             self._conn.execute(
                 """
                 UPDATE models SET
-                    name = ?, code = ?, model_type = ?, stage = ?, specialty = ?,
+                    name = ?, code = ?, category = ?, model_type = ?, stage = ?, specialty = ?,
                     voltage_level = ?, version = ?, description = ?, tags = ?,
                     attributes = ?, files = ?, geometry = ?, parent_id = ?,
                     level = ?, updated_at = ?, created_by = ?, extra = ?
@@ -189,6 +223,7 @@ class ModelRepository:
                 (
                     asset.name,
                     asset.code,
+                    asset.category,
                     asset.model_type.value,
                     asset.stage.value,
                     asset.specialty.value,
@@ -266,6 +301,7 @@ class ModelRepository:
             id=row["id"],
             name=row["name"],
             code=row["code"],
+            category=row["category"] or "",
             model_type=row["model_type"],
             stage=row["stage"],
             specialty=row["specialty"],

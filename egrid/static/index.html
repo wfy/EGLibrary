@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>EGLibrary — 电网矢量模型库</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    display: flex; height: 100vh; background: #f4f6f8; color: #222;
+  }
+  /* ---------- 左栏 ---------- */
+  #sidebar {
+    width: 320px; min-width: 320px; background: #fff;
+    border-right: 1px solid #e0e4e8; display: flex; flex-direction: column;
+  }
+  #sidebar header { padding: 14px 16px 10px; border-bottom: 1px solid #eef1f4; }
+  #sidebar header h1 { font-size: 17px; margin-bottom: 10px; }
+  .toolbar { display: flex; gap: 8px; margin-bottom: 10px; }
+  button {
+    padding: 6px 12px; border: 1px solid #c8ceda; border-radius: 4px;
+    background: #fafbfc; cursor: pointer; font-size: 13px;
+  }
+  button:hover { background: #eef2ff; border-color: #7a8cd8; }
+  button.primary { background: #2b5fd9; color: #fff; border-color: #2b5fd9; }
+  button.primary:hover { background: #2450bd; }
+  button.danger { color: #c0392b; }
+  button.danger:hover { background: #fdecea; border-color: #c0392b; }
+  #search { width: 100%; padding: 7px 10px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 13px; }
+  .filters { display: flex; gap: 8px; padding: 10px 16px; }
+  .filters select { flex: 1; padding: 5px 6px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 12px; }
+  #model-list { flex: 1; overflow-y: auto; list-style: none; }
+  #model-list li {
+    padding: 9px 16px; cursor: pointer; border-bottom: 1px solid #f0f2f5; font-size: 13px;
+  }
+  #model-list li:hover { background: #f5f7ff; }
+  #model-list li.active { background: #e8eeff; border-left: 3px solid #2b5fd9; padding-left: 13px; }
+  #model-list .m-code { color: #888; font-size: 12px; margin-left: 6px; }
+  #list-count { padding: 8px 16px; font-size: 12px; color: #999; border-top: 1px solid #eef1f4; }
+
+  /* ---------- 右栏 ---------- */
+  #main { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .placeholder { color: #aab; text-align: center; margin-top: 18vh; font-size: 15px; }
+  #detail h2 { font-size: 19px; margin-bottom: 4px; }
+  #detail .sub { color: #777; font-size: 13px; margin-bottom: 16px; }
+  .card {
+    background: #fff; border: 1px solid #e3e7ec; border-radius: 6px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .card h3 { font-size: 14px; margin-bottom: 10px; color: #33415c; }
+  table.attrs { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.attrs td, table.attrs th { border: 1px solid #edf0f4; padding: 5px 8px; text-align: left; }
+  table.attrs th { background: #f7f9fb; width: 130px; font-weight: normal; color: #667; }
+  .meta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px 16px; font-size: 13px; }
+  .meta-grid b { color: #889; font-weight: normal; }
+  #svg-preview { width: 100%; max-width: 520px; border: 1px solid #eee; border-radius: 4px; background: #fff; }
+  #pointcloud-canvas { width: 100%; max-width: 520px; height: 300px; border: 1px solid #eee; border-radius: 4px; background: #10141c; }
+  ul.versions { list-style: none; font-size: 13px; }
+  ul.versions li { padding: 4px 0; border-bottom: 1px dashed #eef1f4; }
+  ul.versions .v-time { color: #999; font-size: 12px; margin-left: 8px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  input.note { padding: 6px 8px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 13px; width: 220px; }
+
+  /* ---------- 弹窗 ---------- */
+  dialog {
+    border: 1px solid #d5dae2; border-radius: 8px; padding: 20px 22px;
+    width: 380px; box-shadow: 0 8px 30px rgba(0,0,0,.15);
+  }
+  dialog::backdrop { background: rgba(30,40,60,.35); }
+  dialog h3 { margin-bottom: 14px; font-size: 15px; }
+  dialog label { display: block; font-size: 12px; color: #667; margin: 10px 0 4px; }
+  dialog input, dialog select, dialog textarea {
+    width: 100%; padding: 7px 9px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 13px;
+  }
+  dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+  #toast {
+    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+    background: #333; color: #fff; padding: 8px 18px; border-radius: 20px;
+    font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 99;
+  }
+  #toast.show { opacity: .92; }
+</style>
+</head>
+<body>
+
+<!-- 左栏：工具栏 + 列表 -->
+<aside id="sidebar">
+  <header>
+    <h1>⚡ EGLibrary 模型库</h1>
+    <div class="toolbar">
+      <button class="primary" id="btn-new">＋ 新建</button>
+      <button id="btn-import">⇪ 导入 GIM/ZIP</button>
+      <button id="btn-cats" title="管理模型大类">分类</button>
+      <input type="file" id="import-file" accept=".zip,.gim" hidden>
+    </div>
+    <input id="search" placeholder="搜索名称 / 编码 / 描述，回车查询">
+  </header>
+  <div class="filters">
+    <select id="filter-category"><option value="">全部大类</option></select>
+    <select id="filter-type"><option value="">全部类型</option></select>
+    <select id="filter-voltage">
+      <option value="">全部电压</option>
+      <option>10kV</option><option>35kV</option><option>110kV</option>
+      <option>220kV</option><option>500kV</option><option>750kV</option><option>1000kV</option>
+    </select>
+  </div>
+  <ul id="model-list"></ul>
+  <div id="list-count"></div>
+</aside>
+
+<!-- 右栏：详情 -->
+<main id="main">
+  <p class="placeholder" id="placeholder">← 从左侧选择一个模型查看详情</p>
+  <div id="detail" hidden>
+    <h2 id="d-name"></h2>
+    <div class="sub" id="d-sub"></div>
+
+    <div class="card">
+      <h3>基本信息</h3>
+      <div class="meta-grid" id="d-meta"></div>
+    </div>
+
+    <div class="card">
+      <h3>SVG 预览</h3>
+      <img id="svg-preview" alt="预览图">
+    </div>
+
+    <div class="card">
+      <h3>版本快照</h3>
+      <div class="toolbar">
+        <input class="note" id="version-note" placeholder="快照备注（可留空）">
+        <button class="primary" id="btn-version">创建快照</button>
+      </div>
+      <ul class="versions" id="version-list"></ul>
+    </div>
+
+    <div class="card">
+      <h3>点云采样</h3>
+      <div class="toolbar">
+        <button id="btn-pointcloud">采样 2000 点</button>
+      </div>
+      <canvas id="pointcloud-canvas" width="1040" height="600"></canvas>
+    </div>
+
+    <div class="card actions">
+      <button class="primary" id="btn-export">⇩ 导出 GIM 包</button>
+      <button class="danger" id="btn-delete">✕ 删除模型</button>
+    </div>
+  </div>
+</main>
+
+<!-- 新建弹窗 -->
+<dialog id="dlg-new">
+  <h3>新建模型</h3>
+  <label>名称 *</label>
+  <input id="n-name" placeholder="如：220kV 隔离开关">
+  <label>大类 *</label>
+  <select id="n-category"></select>
+  <label>编码</label>
+  <input id="n-code" placeholder="如：GW4-220">
+  <label>类型</label>
+  <select id="n-type">
+    <option value="device">设备</option><option value="material">材料</option>
+    <option value="civil">构筑物</option><option value="system">系统</option>
+    <option value="line">线路</option><option value="other">其他</option>
+  </select>
+  <label>电压等级</label>
+  <input id="n-voltage" placeholder="如：220kV">
+  <label>描述</label>
+  <textarea id="n-desc" rows="2"></textarea>
+  <div class="dialog-actions">
+    <button id="n-cancel">取消</button>
+    <button class="primary" id="n-submit">创建</button>
+  </div>
+</dialog>
+
+<!-- 分类管理弹窗 -->
+<dialog id="dlg-cats">
+  <h3>分类管理</h3>
+  <ul class="versions" id="cat-list"></ul>
+  <label>新分类名称</label>
+  <div class="toolbar">
+    <input id="c-name" placeholder="如：直流" style="flex:1">
+    <button class="primary" id="c-add">添加</button>
+  </div>
+  <div class="dialog-actions">
+    <button id="c-close">关闭</button>
+  </div>
+</dialog>
+
+<div id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+let currentId = null;
+
+const TYPE_LABELS = { device: "设备", material: "材料", civil: "构筑物", system: "系统", line: "线路", other: "其他" };
+const STAGE_LABELS = { common: "通用库", product: "产品库", finished: "成品库", custom: "自定义" };
+
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+async function api(path, options) {
+  const resp = await fetch(path, options);
+  if (!resp.ok) {
+    let detail = resp.statusText;
+    try { detail = (await resp.json()).detail || detail; } catch (e) { /* 忽略解析失败 */ }
+    throw new Error(detail);
+  }
+  return resp;
+}
+
+// ---------- 列表 ----------
+async function refreshList() {
+  const params = new URLSearchParams();
+  if ($("search").value.trim()) params.set("keyword", $("search").value.trim());
+  if ($("filter-category").value) params.set("category", $("filter-category").value);
+  if ($("filter-type").value) params.set("model_type", $("filter-type").value);
+  if ($("filter-voltage").value) params.set("voltage_level", $("filter-voltage").value);
+  const resp = await api("/api/models?" + params.toString());
+  const models = await resp.json();
+
+  const ul = $("model-list");
+  ul.innerHTML = "";
+  for (const m of models) {
+    const li = document.createElement("li");
+    li.dataset.id = m.id;
+    if (m.id === currentId) li.classList.add("active");
+    li.innerHTML =
+      `<span>${escapeHtml(m.name)}</span><span class="m-code">${escapeHtml(m.code)}</span>` +
+      (m.category ? `<div class="m-code">［${escapeHtml(m.category)}］</div>` : "");
+    li.onclick = () => selectModel(m.id);
+    ul.appendChild(li);
+  }
+  $("list-count").textContent = `共 ${models.length} 个模型`;
+}
+
+// ---------- 详情 ----------
+async function selectModel(id) {
+  currentId = id;
+  document.querySelectorAll("#model-list li").forEach(
+    (li) => li.classList.toggle("active", li.dataset.id === id)
+  );
+  const model = await (await api("/api/models/" + id)).json();
+
+  $("placeholder").hidden = true;
+  $("detail").hidden = false;
+  $("d-name").textContent = model.name;
+  $("d-sub").textContent = `［${model.category || "未分类"}］ ${TYPE_LABELS[model.model_type] || model.model_type} · ${STAGE_LABELS[model.stage] || model.stage}`;
+  $("d-meta").innerHTML = [
+    ["编码", model.code || "—"],
+    ["大类", model.category || "—"],
+    ["电压等级", model.voltage_level || "—"],
+    ["专业", model.specialty],
+    ["层级 L" + model.level, ""],
+    ["版本", model.version],
+    ["文件数", model.files.length],
+    ["创建时间", (model.created_at || "").replace("T", " ")],
+    ["更新时间", (model.updated_at || "").replace("T", " ")],
+  ].map(([k, v]) => `<div><b>${k}</b>　${escapeHtml(String(v))}</div>`).join("");
+
+  // 属性表
+  const attrs = model.attributes || [];
+  const metaCard = $("d-meta").closest(".card");
+  let attrTable = metaCard.nextElementSibling;
+  if (!attrTable || !attrTable.classList.contains("attr-card")) {
+    attrTable = document.createElement("div");
+    attrTable.className = "card attr-card";
+    metaCard.after(attrTable);
+  }
+  attrTable.innerHTML = "<h3>属性</h3>" + (attrs.length
+    ? '<table class="attrs">' + attrs.map((a) =>
+        `<tr><th>${escapeHtml(a.key)}</th><td>${escapeHtml(String(a.value))}${a.unit ? " " + escapeHtml(a.unit) : ""}</td></tr>`
+      ).join("") + "</table>"
+    : '<span style="color:#aab;font-size:13px">暂无属性</span>');
+
+  // SVG 预览（加时间戳防缓存）
+  $("svg-preview").src = `/api/models/${id}/preview.svg?t=${Date.now()}`;
+
+  $("version-note").value = "";
+  await refreshVersions();
+  clearPointcloud();
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---------- 版本 ----------
+async function refreshVersions() {
+  const versions = await (await api(`/api/models/${currentId}/versions`)).json();
+  $("version-list").innerHTML = versions.length
+    ? versions.map((v) =>
+        `<li><b>${escapeHtml(v.version)}</b> ${escapeHtml(v.note)}<span class="v-time">${escapeHtml((v.created_at || "").replace("T", " "))}</span></li>`
+      ).join("")
+    : '<li style="color:#aab">暂无版本快照</li>';
+}
+
+$("btn-version").onclick = async () => {
+  try {
+    await api(`/api/models/${currentId}/versions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ note: $("version-note").value.trim() }),
+    });
+    toast("已创建版本快照");
+    await refreshVersions();
+  } catch (e) { toast("失败：" + e.message); }
+};
+
+// ---------- 点云 ----------
+function clearPointcloud() {
+  const cv = $("pointcloud-canvas");
+  cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+}
+
+$("btn-pointcloud").onclick = async () => {
+  try {
+    const sample = await (await api(`/api/models/${currentId}/pointcloud?count=2000&seed=42`)).json();
+    drawPointcloud(sample);
+    toast(`已采样 ${sample.count} 点`);
+  } catch (e) { toast("失败：" + e.message); }
+};
+
+// 等轴测投影 + 按标签着色，画到 canvas
+function drawPointcloud(sample) {
+  const cv = $("pointcloud-canvas"), ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if (!sample.count) return;
+
+  const pts = sample.points.map(([x, y, z]) => [(x - z) * 0.866, (x + z) * 0.5 - y]);
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [px, py] of pts) {
+    minX = Math.min(minX, px); maxX = Math.max(maxX, px);
+    minY = Math.min(minY, py); maxY = Math.max(maxY, py);
+  }
+  const pad = 40;
+  const scale = Math.min((cv.width - pad * 2) / (maxX - minX || 1), (cv.height - pad * 2) / (maxY - minY || 1));
+  const ox = (cv.width - (maxX + minX) * scale) / 2;
+  const oy = (cv.height + (maxY + minY) * scale) / 2;
+
+  // 标签哈希上色
+  const palette = {};
+  for (const label of new Set(sample.labels)) {
+    let h = 0;
+    for (const c of label) h = (h * 31 + c.codePointAt(0)) % 360;
+    palette[label] = `hsl(${h},70%,60%)`;
+  }
+
+  ctx.fillStyle = "#fff";
+  ctx.font = "12px sans-serif";
+  for (const label of Object.keys(palette)) ctx.fillText(label, 10, 18);
+  ctx.fillStyle = "#ccc";
+  ctx.fillText(`${sample.count} pts`, 10, cv.height - 10);
+
+  for (let i = 0; i < sample.count; i++) {
+    const [px, py] = pts[i];
+    ctx.fillStyle = palette[sample.labels[i]];
+    ctx.fillRect(ox + px * scale - 1.5, oy - py * scale - 1.5, 3, 3);
+  }
+}
+
+// ---------- 新建 / 导入 / 导出 / 删除 ----------
+$("btn-new").onclick = () => { $("dlg-new").showModal(); $("n-name").focus(); };
+$("n-cancel").onclick = () => $("dlg-new").close();
+$("n-submit").onclick = async () => {
+  const name = $("n-name").value.trim();
+  if (!name) { toast("名称不能为空"); return; }
+  try {
+    const resp = await api("/api/models", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        category: $("n-category").value,
+        code: $("n-code").value.trim(),
+        model_type: $("n-type").value,
+        voltage_level: $("n-voltage").value.trim(),
+        description: $("n-desc").value.trim(),
+      }),
+    });
+    const created = await resp.json();
+    $("dlg-new").close();
+    ["n-name", "n-code", "n-voltage", "n-desc"].forEach((id) => ($(id).value = ""));
+    toast("创建成功");
+    currentId = created.id;
+    await refreshList();
+    await selectModel(created.id);
+  } catch (e) { toast("失败：" + e.message); }
+};
+
+$("btn-import").onclick = () => $("import-file").click();
+$("import-file").onchange = async () => {
+  const file = $("import-file").files[0];
+  if (!file) return;
+  try {
+    const form = new FormData();
+    form.append("file", file);
+    const resp = await api("/api/models/import", { method: "POST", body: form });
+    const result = await resp.json();
+    toast(`导入成功：${result.created.length} 个模型`);
+    currentId = result.created[0]?.id || null;
+    await refreshList();
+    if (currentId) await selectModel(currentId);
+  } catch (e) { toast("导入失败：" + e.message); }
+  $("import-file").value = "";
+};
+
+$("btn-export").onclick = () => {
+  window.open(`/api/models/${currentId}/export`, "_blank");
+};
+
+$("btn-delete").onclick = async () => {
+  if (!confirm("确认删除该模型及其文件？此操作不可恢复。")) return;
+  try {
+    await api("/api/models/" + currentId, { method: "DELETE" });
+    toast("已删除");
+    currentId = null;
+    $("detail").hidden = true;
+    $("placeholder").hidden = false;
+    await refreshList();
+  } catch (e) { toast("失败：" + e.message); }
+};
+
+// ---------- 分类管理 ----------
+async function refreshCategories() {
+  const cats = await (await api("/api/categories")).json();
+  const names = cats.map((c) => c.name);
+  // 筛选下拉与新建下拉同步刷新
+  const sel = $("filter-category"), cur = sel.value;
+  sel.innerHTML = '<option value="">全部大类</option>' +
+    names.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
+  sel.value = cur;
+  $("n-category").innerHTML = names.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
+  return names;
+}
+
+$("btn-cats").onclick = async () => {
+  await renderCatList();
+  $("dlg-cats").showModal();
+};
+$("c-close").onclick = () => $("dlg-cats").close();
+
+async function renderCatList() {
+  const names = await refreshCategories();
+  $("cat-list").innerHTML = names.map((n) => `<li>▸ ${escapeHtml(n)}</li>`).join("");
+}
+
+$("c-add").onclick = async () => {
+  const name = $("c-name").value.trim();
+  if (!name) { toast("分类名称不能为空"); return; }
+  try {
+    await api("/api/categories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    $("c-name").value = "";
+    toast("已添加分类：" + name);
+    await renderCatList();
+  } catch (e) { toast("失败：" + e.message); }
+};
+
+// ---------- 搜索 / 筛选 ----------
+$("search").addEventListener("keydown", (ev) => { if (ev.key === "Enter") refreshList(); });
+$("filter-category").onchange = refreshList;
+$("filter-type").onchange = refreshList;
+$("filter-voltage").onchange = refreshList;
+
+// ---------- 启动 ----------
+(async function init() {
+  try {
+    await refreshCategories();
+    await refreshList();
+  } catch (e) {
+    toast("加载失败：" + e.message);
+  }
+})();
+</script>
+</body>
+</html>
