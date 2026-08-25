@@ -52,4 +52,5 @@ def test_parse_matrix():
     m = parse_matrix("1,0,0,322000.07,0,1,0,-42000.08,0,0,1,41000.0,0,0,0,1")
     assert len(m) == 16
     assert m[3] == 322000.07
-    assert m[13] == -42000.08
+    assert m[7] == -42000.08
+    assert m[11] == 41000.0

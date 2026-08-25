@@ -1,10 +1,13 @@
 import zipfile
+from pathlib import Path
 
 import pytest
 
 from egrid.models import Geometry, ModelAsset, ModelQuery, Primitive, PrimitiveType
 from egrid.render import render_model_svg, sample_model_pointcloud
 from egrid.service import ModelService
+
+GIM_FIXTURE = Path(__file__).parent / "fixtures" / "tower_2f4sdj.gim"
 
 
 @pytest.fixture()
@@ -65,6 +68,33 @@ def test_import_export_roundtrip(service, tmp_path):
         names = zf.namelist()
         assert "manifest.json" in names
         assert any(n.startswith("MOD/") for n in names)
+
+
+def test_import_real_gim_parses_attributes_and_geometry(service, tmp_path):
+    pkg = tmp_path / "2F4-SDJ.gim"
+    pkg.write_bytes(GIM_FIXTURE.read_bytes())
+
+    created = service.import_gim_package(str(pkg))
+    assert len(created) == 1
+    m = created[0]
+    assert m.name == "2F4-SDJ"
+    assert m.voltage_level == "220kV"
+    assert m.code == "2F4-SDJ"
+
+    keys = {a.key: a for a in m.attributes}
+    assert keys["TOWERTYPE"].value == "终端"
+    assert keys["CONDUCTOR"].value == "LGJ-630/45"
+
+    assert len(m.geometry.primitives) == 1132
+    assert m.geometry.primitives[0].type.value == "line"
+
+    # 原始包已存档
+    assert m.files[0].kind.value == "gim"
+
+    # 重新读取持久化后数据完整
+    loaded = service.get_model(m.id)
+    assert loaded is not None
+    assert len(loaded.geometry.primitives) == 1132
 
 
 def test_render_and_pointcloud(service):

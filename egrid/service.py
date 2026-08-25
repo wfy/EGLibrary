@@ -20,6 +20,7 @@ from .models import (
     new_guid,
     utcnow,
 )
+from .gim import is_gim, parse_gim
 from .storage import ModelRepository
 
 # GIM 标准四目录结构
@@ -160,6 +161,11 @@ class ModelService:
                     zf.extractall(tmp_path)
                 root = tmp_path
             elif src.is_file():
+                content = src.read_bytes()
+                if is_gim(content):
+                    return self._import_real_gim(
+                        content, src, name or fallback_name, voltage_level
+                    )
                 # 简化：单文件作为 .mod 直接入库
                 return [self._import_single_file(src, name or fallback_name, voltage_level)]
             else:
@@ -227,6 +233,25 @@ class ModelService:
             path = self.storage_dir / temp_id
             if path.exists():
                 shutil.rmtree(path, ignore_errors=True)
+
+    def _import_real_gim(
+        self,
+        content: bytes,
+        src: Path,
+        name: Optional[str],
+        voltage_level: str,
+    ) -> List[ModelAsset]:
+        """真实 GIM 专有容器：解析属性与几何，原包同时存档。"""
+        assets = parse_gim(content)
+        created = []
+        for asset in assets:
+            if name:
+                asset.name = name
+            asset.voltage_level = asset.voltage_level or voltage_level
+            model_file = self._store_uploaded_file(asset.id, src.name, content)
+            asset.files = [model_file]
+            created.append(self.repo.create_model(asset))
+        return created
 
     def _import_single_file(self, path: Path, name: Optional[str], voltage_level: str) -> ModelAsset:
         content = path.read_bytes()

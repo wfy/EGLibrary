@@ -24,6 +24,8 @@ KIND_BY_MAGIC = {
 
 _NAME_OFFSET = 16
 _TIME_RE = re.compile(rb"\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?")
+# GBK 汉字区（连续双字节），用于提取头部中文元数据
+_CJK_RE = re.compile(rb"(?:[\xB0-\xF7][\xA1-\xFE]){2,}")
 
 
 @dataclass
@@ -56,27 +58,10 @@ def _read_cstring(data: bytes, offset: int, limit: int = 256) -> str:
 def _extract_cjk_strings(head: bytes) -> list:
     """提取头部 GBK 中文串（启发式，用于组织单位/软件名称）。"""
     out = []
-    i, n = 0, len(head)
-    while i < n - 1:
-        j = i
-        chars = []
-        while j < n - 1:
-            pair = head[j:j + 2]
-            try:
-                ch = pair.decode("gbk")
-            except UnicodeDecodeError:
-                break
-            if len(ch) == 1 and ("\u4e00" <= ch <= "\u9fff" or ch in "（）()、·—"):
-                chars.append(ch)
-                j += 2
-            else:
-                break
-        text = "".join(chars)
+    for m in _CJK_RE.finditer(head):
+        text = m.group().decode("gbk", errors="replace")
         if len(text) >= 2:
-            out.append((i, text))
-            i = j
-        else:
-            i += 1
+            out.append((m.start(), text))
     return out
 
 
@@ -102,12 +87,12 @@ def parse_header(data: bytes) -> GimHeader:
 
     strings = _extract_cjk_strings(head)
     header.extra_strings = [s for _, s in strings]
-    for off, text in strings:
+    for _, text in strings:
         if "系统" in text or "设计" in text or "软件" in text:
             header.software = text
             break
-    for off, text in strings:
-        if text != header.software:
-            header.organization = text
-            break
+    # 组织单位取其余串中最长者（堆数据误报通常较短）
+    rest = [t for _, t in strings if t != header.software]
+    if rest:
+        header.organization = max(rest, key=len)
     return header

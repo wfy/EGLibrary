@@ -172,11 +172,14 @@ def export_model(model_id: str):
 
 
 @app.get("/api/models/{model_id}/preview.svg")
-def preview_svg(model_id: str):
+def preview_svg(
+    model_id: str,
+    view: str = Query("iso", pattern="^(iso|front|side|top)$"),
+):
     model = service.get_model(model_id)
     if not model:
         raise HTTPException(status_code=404, detail="模型不存在")
-    svg = render_model_svg(model)
+    svg = render_model_svg(model, view=view)
     return Response(content=svg, media_type="image/svg+xml")
 
 

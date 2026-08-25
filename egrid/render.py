@@ -197,14 +197,84 @@ def sample_model_pointcloud(
 
 
 # ---------- SVG 预览 ----------
+def _project_view(view: str, x: float, y: float, z: float) -> Tuple[float, float]:
+    """多视角投影。GIM 规范 Z 轴为高度轴（Q/GDW 11809 附录B），SVG y 向下。
+
+    - iso: 等轴测（默认）
+    - front: 正视（x 向右，z 向上）
+    - side: 侧视（y 向右，z 向上）
+    - top: 俯视（x 向右，y 向下）
+    """
+    if view == "front":
+        return x, -z
+    if view == "side":
+        return y, -z
+    if view == "top":
+        return x, y
+    return (x - y) * 0.866, (x + y) * 0.5 - z
+
+
 def _project(x: float, y: float, z: float) -> Tuple[float, float]:
-    """简单等轴测投影。"""
-    px = (x - z) * 0.866
-    py = (x + z) * 0.5 - y
-    return px, py
+    """等轴测投影（z-up）。"""
+    return _project_view("iso", x, y, z)
 
 
-def _svg_primitive(prim: Primitive) -> str:
+def _primitive_bounds(prim: Primitive, view: str = "iso") -> List[Tuple[float, float]]:
+    """图元的 2D 投影采样点（用于包围盒计算）。"""
+    if prim.type == PrimitiveType.LINE:
+        start = prim.params.get("start", [0, 0, 0])
+        end = prim.params.get("end", [100, 0, 0])
+        return [_project_view(view, *start), _project_view(view, *end)]
+    if prim.type == PrimitiveType.BOX:
+        w = float(prim.params.get("width", 100))
+        d = float(prim.params.get("depth", 100))
+        h = float(prim.params.get("height", 100))
+        pts = [
+            (x, y, z)
+            for x in (-w / 2, w / 2)
+            for y in (-d / 2, d / 2)
+            for z in (-h / 2, h / 2)
+        ]
+        return [_project_view(view, px + prim.position[0], py + prim.position[1], pz + prim.position[2])
+                for px, py, pz in pts]
+    # 旋转体/球类：用位置 ± 最大特征尺寸近似
+    if prim.type in (PrimitiveType.CYLINDER, PrimitiveType.CONE):
+        r = float(prim.params.get("radius", 50))
+        h = float(prim.params.get("height", 200)) / 2
+        ext = max(r, h)
+    elif prim.type == PrimitiveType.SPHERE:
+        ext = float(prim.params.get("radius", 50))
+    elif prim.type == PrimitiveType.TORUS:
+        ext = float(prim.params.get("major_radius", 80)) + float(prim.params.get("minor_radius", 20))
+    else:
+        ext = 10.0
+    cx, cy, cz = prim.position
+    return [
+        _project_view(view, cx - ext, cy - ext, cz - ext),
+        _project_view(view, cx + ext, cy + ext, cz + ext),
+    ]
+
+
+def _fit_transform(primitives, width: int, height: int, view: str = "iso", pad: float = 24.0):
+    """计算将图元包围盒适配进画布的 (tx, ty, scale)。"""
+    pts = []
+    for prim in primitives:
+        pts.extend(_primitive_bounds(prim))
+    if not pts:
+        return 0.0, 0.0, 1.0
+    xs = [p[0] for p in pts]
+    ys = [p[1] for p in pts]
+    minx, maxx = min(xs), max(xs)
+    miny, maxy = min(ys), max(ys)
+    w, h = maxx - minx, maxy - miny
+    scale = min((width - pad * 2) / w if w > 1e-6 else 1e3,
+                (height - pad * 2) / h if h > 1e-6 else 1e3)
+    scale = min(scale, 1e3)
+    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
+    return -cx * scale, -cy * scale, scale
+
+
+def _svg_primitive(prim: Primitive, view: str = "iso") -> str:
     """将单个图元投影为 SVG 元素（简化表示）。"""
     color = MATERIAL_COLORS.get(prim.material, prim.color)
     if prim.type == PrimitiveType.BOX:
@@ -218,7 +288,7 @@ def _svg_primitive(prim: Primitive) -> str:
             for z in (-h / 2, h / 2)
         ]
         # 简单绘制一个矩形代表盒子
-        pts = [_project(x, y, z) for x, y, z in corners]
+        pts = [_project_view(view, x, y, z) for x, y, z in corners]
         xs = [p[0] for p in pts]
         ys = [p[1] for p in pts]
         x, y = min(xs), min(ys)
@@ -227,40 +297,48 @@ def _svg_primitive(prim: Primitive) -> str:
     if prim.type == PrimitiveType.CYLINDER:
         r = float(prim.params.get("radius", 50))
         h = float(prim.params.get("height", 200))
-        cx, cy = _project(prim.position[0], prim.position[1] - h / 2, prim.position[2])
+        cx, cy = _project_view(view, prim.position[0], prim.position[1] - h / 2, prim.position[2])
         return f'<ellipse cx="{cx:.1f}" cy="{cy:.1f}" rx="{r:.1f}" ry="{r * 0.4:.1f}" fill="{color}" fill-opacity="0.7" stroke="#222" stroke-width="1.5"/>'
     if prim.type == PrimitiveType.SPHERE:
         r = float(prim.params.get("radius", 50))
-        cx, cy = _project(*prim.position)
+        cx, cy = _project_view(view, *prim.position)
         return f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="{color}" fill-opacity="0.7" stroke="#222" stroke-width="1.5"/>'
     if prim.type == PrimitiveType.CONE:
         r = float(prim.params.get("radius", 50))
         h = float(prim.params.get("height", 150))
-        cx, cy = _project(*prim.position)
+        cx, cy = _project_view(view, *prim.position)
         return f'<path d="M {cx-r:.1f} {cy+h/2:.1f} L {cx+r:.1f} {cy+h/2:.1f} L {cx:.1f} {cy-h/2:.1f} Z" fill="{color}" fill-opacity="0.7" stroke="#222" stroke-width="1.5"/>'
     if prim.type == PrimitiveType.LINE:
         start = prim.params.get("start", [0, 0, 0])
         end = prim.params.get("end", [100, 0, 0])
-        x1, y1 = _project(*start)
-        x2, y2 = _project(*end)
+        x1, y1 = _project_view(view, *start)
+        x2, y2 = _project_view(view, *end)
         return f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" y2="{y2:.1f}" stroke="{color}" stroke-width="3"/>'
     # 默认
-    cx, cy = _project(*prim.position)
+    cx, cy = _project_view(view, *prim.position)
     return f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="10" fill="{color}"/>'
 
 
-def render_model_svg(model: ModelAsset, width: int = 480, height: int = 360) -> str:
-    """生成模型 SVG 预览。"""
+def render_model_svg(model: ModelAsset, width: int = 480, height: int = 360, view: str = "iso") -> str:
+    """生成模型 SVG 预览（自动缩放适配画布）。"""
+    tx, ty, scale = _fit_transform(model.geometry.primitives, width, height, view)
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="{-width/2} {-height/2} {width} {height}">',
         f'<rect x="{-width/2}" y="{-height/2}" width="{width}" height="{height}" fill="#fafafa" stroke="#ccc"/>',
-        f'<text x="{-width/2+12}" y="{-height/2+24}" font-size="16" font-family="sans-serif">{model.name}</text>',
-        f'<text x="{-width/2+12}" y="{-height/2+44}" font-size="12" font-family="sans-serif" fill="#666">{model.code} · {model.voltage_level} · {model.stage.value}</text>',
     ]
     if model.geometry.primitives:
+        parts.append(f'<g transform="translate({tx:.2f},{ty:.2f}) scale({scale:.6f})">')
         for prim in model.geometry.primitives:
-            parts.append(_svg_primitive(prim))
-    else:
+            parts.append(_svg_primitive(prim, view))
+        parts.append("</g>")
+    # 标题文字固定在画布角上，不参与缩放
+    parts.append(
+        f'<text x="{-width/2+12}" y="{-height/2+24}" font-size="16" font-family="sans-serif">{model.name}</text>'
+    )
+    parts.append(
+        f'<text x="{-width/2+12}" y="{-height/2+44}" font-size="12" font-family="sans-serif" fill="#666">{model.code} · {model.voltage_level} · {model.stage.value}</text>'
+    )
+    if not model.geometry.primitives:
         # 空模型占位符：简化的电塔/闪电符号
         parts.append(
             '<path d="M 0 -80 L 20 -20 L 5 -20 L 15 60 L -15 -10 L 0 -10 L -20 -80 Z" '

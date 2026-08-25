@@ -42,7 +42,7 @@ def parse_kv_dict(text: str) -> dict:
 
 
 def parse_fam_text(text: str) -> list:
-    """解析 fam 属性文本，返回 [(category, key, 中文描述, value)]。"""
+    """解析 fam 属性文本，返回 FamAttr 列表。"""
     attrs = []
     category = "design"
     for raw in text.splitlines():
@@ -54,10 +54,14 @@ def parse_fam_text(text: str) -> list:
             continue
         parts = line.split("=")
         if len(parts) >= 3:
-            key, cn, value = parts[0].strip(), parts[1].strip(), "=".join(parts[2:]).strip()
-            attrs.append((category, key, cn, value))
+            attrs.append(FamAttr(
+                category=category,
+                key=parts[0].strip(),
+                description=parts[1].strip(),
+                value="=".join(parts[2:]).strip(),
+            ))
         elif len(parts) == 2:
-            attrs.append((category, parts[0].strip(), "", parts[1].strip()))
+            attrs.append(FamAttr(category, parts[0].strip(), "", parts[1].strip()))
     return attrs
 
 

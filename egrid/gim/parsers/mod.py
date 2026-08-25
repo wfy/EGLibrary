@@ -1,0 +1,117 @@
+"""mod 几何文件解析。
+
+- 变电/换流站（Q/GDW 11809 附录A.6.5）：XML，Entity 节点 + 参数化图元 + 布尔运算 + 变换矩阵
+- 架空线路杆塔（Q/GDW 11810.2 附录A.3）：文本，P 节点 + r 杆件线架 + G 挂点
+"""
+from __future__ import annotations
+
+import xml.etree.ElementTree as ET
+
+from ...models import Primitive, PrimitiveType
+
+# 变电 XML 图元标签 → (PrimitiveType, 参数名映射)
+XML_PRIMITIVES = {
+    "Cuboid": (PrimitiveType.BOX, {"L": "depth", "W": "width", "H": "height"}),
+    "Sphere": (PrimitiveType.SPHERE, {"R": "radius"}),
+    "Cylinder": (PrimitiveType.CYLINDER, {"R": "radius", "H": "height"}),
+    "Cone": (PrimitiveType.CONE, {"R": "radius", "H": "height"}),
+    "Ring": (PrimitiveType.TORUS, {"R": "major_radius", "DR": "minor_radius"}),
+}
+
+
+def parse_mod(text: str) -> list:
+    """按内容自动分派：XML（变电图元）或文本（线路杆塔线架）。"""
+    stripped = text.lstrip("\ufeff \t\r\n")
+    if stripped.startswith("<"):
+        return parse_mod_substation(stripped)
+    return parse_mod_tower(text)
+
+
+def parse_mod_tower(text: str) -> list:
+    """杆塔线架：P 节点表 + r 杆件 → LINE 图元集合。"""
+    nodes = {}
+    prims = []
+    for raw in text.splitlines():
+        line = raw.strip().lstrip("\ufeff")
+        if not line:
+            continue
+        parts = [x.strip() for x in line.split(",")]
+        tag = parts[0].upper()
+        try:
+            if tag == "P" and len(parts) >= 5:
+                nodes[int(parts[1])] = (float(parts[2]), float(parts[3]), float(parts[4]))
+            elif tag == "R" and len(parts) >= 3:
+                a, b = int(parts[1]), int(parts[2])
+                pa, pb = nodes.get(a), nodes.get(b)
+                if pa and pb:
+                    prims.append(Primitive(
+                        name=parts[3] if len(parts) > 3 and parts[3] else "杆件",
+                        type=PrimitiveType.LINE,
+                        params={"start": list(pa), "end": list(pb)},
+                        material="steel",
+                    ))
+        except ValueError:
+            continue
+    return prims
+
+
+def parse_mod_substation(text: str) -> list:
+    """变电 XML：Entity(simple) → 参数化图元；Entity(boolean) 按并集近似（取 Entity1）。"""
+    stripped = text.lstrip("\ufeff \t\r\n")
+    if not stripped.startswith("<"):
+        return []
+    try:
+        # 规范中多个 Entity 平铺无单一根节点，包裹伪根解析
+        root = ET.fromstring("<Root>" + stripped + "</Root>")
+    except ET.ParseError:
+        return []
+    prims = []
+    simple = {}
+    for entity in root.iter("Entity"):
+        etype = (entity.get("Type") or "simple").lower()
+        if etype == "boolean":
+            continue  # 布尔运算第一版按并集近似：跳过，保留参与图元
+        transform = entity.find("TransformMatrix")
+        pos = [0.0, 0.0, 0.0]
+        if transform is not None and transform.get("Value"):
+            try:
+                m = [float(x) for x in transform.get("Value").replace(",", " ").split()]
+                if len(m) >= 12:
+                    pos = [m[3], m[7], m[11]]
+            except ValueError:
+                pass
+        color = entity.find("Color")
+        color_hex = "#888888"
+        if color is not None:
+            try:
+                color_hex = "#{:02X}{:02X}{:02X}".format(
+                    int(color.get("R", "136")), int(color.get("G", "136")), int(color.get("B", "136"))
+                )
+            except ValueError:
+                pass
+        for child in entity:
+            if child.tag not in XML_PRIMITIVES:
+                continue
+            ptype, keymap = XML_PRIMITIVES[child.tag]
+            params = {}
+            for xml_key, param_key in keymap.items():
+                raw = child.get(xml_key)
+                if raw is None:
+                    continue
+                try:
+                    params[param_key] = float(raw)
+                except ValueError:
+                    continue
+            prim = Primitive(
+                name=child.tag,
+                type=ptype,
+                params=params,
+                position=pos,
+                color=color_hex,
+            )
+            prims.append(prim)
+            try:
+                simple[entity.get("ID")] = prim
+            except (TypeError, KeyError):
+                pass
+    return prims
