@@ -37,6 +37,20 @@ def test_categories_api(client):
     assert resp.status_code == 400
 
 
+def test_import_real_gim_keeps_filename(client):
+    # 真实 GIM 专有格式（GIMPKGT 魔数）：应保留原始文件名并标记 gim 类型
+    payload = b"GIMPKGT\x00Stck" + b"\x00" * 64
+    resp = client.post(
+        "/api/models/import",
+        files={"file": ("2F4-SDJ变电站.gim", payload, "application/octet-stream")},
+    )
+    assert resp.status_code == 200
+    model = resp.json()["created"][0]
+    assert model["name"] == "2F4-SDJ变电站"
+    assert model["files"][0]["kind"] == "gim"
+    assert "GIM" in model["description"]
+
+
 def test_index_page(client):
     resp = client.get("/")
     assert resp.status_code == 200

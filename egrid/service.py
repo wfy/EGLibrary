@@ -30,10 +30,14 @@ GIM_EXT_TO_KIND = {
     ".dev": GIMFileKind.DEV,
     ".cbm": GIMFileKind.CBM,
     ".fam": GIMFileKind.FAM,
+    ".gim": GIMFileKind.GIM,
     ".stl": GIMFileKind.STL,
     ".obj": GIMFileKind.OBJ,
     ".ifc": GIMFileKind.IFC,
 }
+
+# 真实 GIM 专有包魔数（GIMPKGT）
+GIM_MAGIC = b"GIMPKGT"
 
 
 class ModelService:
@@ -136,11 +140,13 @@ class ModelService:
         package_path: str,
         name: Optional[str] = None,
         voltage_level: str = "",
+        fallback_name: Optional[str] = None,
     ) -> List[ModelAsset]:
         """导入 .gim/.zip 包或目录。
 
-        真实 GIM 为 7Z 压缩包，本实现使用 ZIP 作为可移植的简化载体，
+        真实 GIM 为专有 7Z 类压缩包，本实现使用 ZIP 作为可移植的简化载体，
         同时兼容直接传入解包后的目录。文件会复制到本地模型库存储区。
+        fallback_name 用于上传场景：临时文件名无意义时回退为原始文件名。
         """
         src = Path(package_path)
         if not src.exists():
@@ -155,7 +161,7 @@ class ModelService:
                 root = tmp_path
             elif src.is_file():
                 # 简化：单文件作为 .mod 直接入库
-                return [self._import_single_file(src, name, voltage_level)]
+                return [self._import_single_file(src, name or fallback_name, voltage_level)]
             else:
                 root = src
 
@@ -197,7 +203,7 @@ class ModelService:
                     self._persist_files_from_temp(asset, model_files)
                     created.append(self.repo.create_model(asset))
             else:
-                asset_name = name or (manifest.get("name") if manifest else None) or src.stem
+                asset_name = name or (manifest.get("name") if manifest else None) or fallback_name or src.stem
                 asset = ModelAsset(
                     name=asset_name,
                     voltage_level=voltage_level,
@@ -224,9 +230,17 @@ class ModelService:
 
     def _import_single_file(self, path: Path, name: Optional[str], voltage_level: str) -> ModelAsset:
         content = path.read_bytes()
+        description = ""
+        if content.startswith(GIM_MAGIC):
+            # 真实 GIM 专有包：暂仅存档，不做结构解析
+            description = (
+                "检测到真实 GIM 专有格式（GIMPKGT），当前版本仅存档未解析；"
+                "几何与属性需待 GIM 解析模块支持。"
+            )
         asset = ModelAsset(
             name=name or path.stem,
             voltage_level=voltage_level,
+            description=description,
         )
         asset.id = new_guid()
         model_file = self._store_uploaded_file(asset.id, path.name, content)

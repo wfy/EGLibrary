@@ -47,6 +47,7 @@ class GIMFileKind(str, Enum):
     DEV = "dev"   # 物理模型
     CBM = "cbm"   # 工程模型
     FAM = "fam"   # 属性信息
+    GIM = "gim"   # 真实 GIM 专有包（暂仅存档）
     STL = "stl"
     OBJ = "obj"
     IFC = "ifc"

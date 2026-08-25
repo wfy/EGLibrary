@@ -145,7 +145,12 @@ async def import_gim(
         tmp.write(await file.read())
         tmp_path = tmp.name
     try:
-        created = service.import_gim_package(tmp_path, name=name, voltage_level=voltage_level)
+        created = service.import_gim_package(
+            tmp_path,
+            name=name,
+            voltage_level=voltage_level,
+            fallback_name=Path(file.filename or "model").stem,
+        )
         return ImportResult(created=created)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc

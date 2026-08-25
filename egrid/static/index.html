@@ -263,6 +263,7 @@ async function selectModel(id) {
     ["文件数", model.files.length],
     ["创建时间", (model.created_at || "").replace("T", " ")],
     ["更新时间", (model.updated_at || "").replace("T", " ")],
+    ["描述", model.description || "—"],
   ].map(([k, v]) => `<div><b>${k}</b>　${escapeHtml(String(v))}</div>`).join("");
 
   // 属性表
@@ -405,7 +406,12 @@ $("import-file").onchange = async () => {
     form.append("file", file);
     const resp = await api("/api/models/import", { method: "POST", body: form });
     const result = await resp.json();
-    toast(`导入成功：${result.created.length} 个模型`);
+    const first = result.created[0];
+    if (first && (first.description || "").includes("未解析")) {
+      toast("已存档真实 GIM 包（格式暂未解析，几何/属性为空）");
+    } else {
+      toast(`导入成功：${result.created.length} 个模型`);
+    }
     currentId = result.created[0]?.id || null;
     await refreshList();
     if (currentId) await selectModel(currentId);
