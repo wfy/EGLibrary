@@ -39,10 +39,27 @@ SUBSTATION_MOD_SAMPLE = """<Entity ID="1" Type="simple" Visible="false">
 <TransformMatrix Value="1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1" />
 </Entity>
 <Entity ID="3" Type="boolean" Visible="true">
-<Boolean Type="Intersection" Entity1="1" Entity2="2" />
-<TransformMatrix Value="1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1" />
+<Boolean Type="Difference" Entity1="1" Entity2="2" />
+<Color R="255" G="0" B="0" A="0"/>
+<TransformMatrix Value="1,0,0,5,0,1,0,6,0,0,1,7,0,0,0,1" />
 </Entity>
 """
+
+
+def test_parse_mod_boolean_structure():
+    """Boolean 节点解析：类型/引用/颜色/变换完整记录。"""
+    prims = parse_mod(SUBSTATION_MOD_SAMPLE)
+    bools = [p for p in prims if p.params.get("op")]
+    assert len(bools) == 1
+    b = bools[0]
+    assert b.params["op"] == "Difference"
+    assert b.params["entity1"] == "1"
+    assert b.params["entity2"] == "2"
+    assert b.color == "#FF0000"
+    assert b.position == [5.0, 6.0, 7.0]
+    # 参与图元仍保留（并集近似渲染）
+    assert any(p.type.value == "box" for p in prims)
+    assert any(p.type.value == "cylinder" for p in prims)
 
 
 def test_parse_attributes():

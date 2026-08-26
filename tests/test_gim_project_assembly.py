@@ -54,9 +54,12 @@ def test_wire_aggregated_into_f3(project_assets):
     f3 = [a for a in project_assets if a.description and "F3SYSTEM" in a.description.upper()]
     with_stats = [a for a in f3 if any("导线档数" in x.key for x in a.attributes)]
     assert len(with_stats) > 50
-    # 弧垂曲线抽样挂 F3
+    # 全档展开：每个 F3 都有弧垂曲线，段数 ≈ 档数 × 24
     with_sag = [a for a in f3 if a.geometry.primitives]
-    assert with_sag
+    assert len(with_sag) == len(f3)
+    sample = max(with_sag, key=lambda a: len(a.geometry.primitives))
+    n_wires = next(int(x.value) for x in sample.attributes if x.key == "导线档数")
+    assert len(sample.geometry.primitives) >= min(n_wires, 5) * 24 * 0.8
 
 
 def test_sagcurve_wire():

@@ -80,7 +80,11 @@ def parse_mod_tower(text: str) -> list:
 
 
 def parse_mod_substation(text: str) -> list:
-    """变电 XML：Entity(simple) → 参数化图元；Entity(boolean) 按并集近似（取 Entity1）。"""
+    """变电 XML：Entity(simple) → 参数化图元；Entity(boolean) → 布尔结构记录。
+
+    布尔运算第一版不做真实 CSG（需网格引擎），解析为组合图元记录：
+    params 携带 op/entity1/entity2，渲染按并集近似（保留参与图元）。
+    """
     stripped = text.lstrip("\ufeff \t\r\n")
     if not stripped.startswith("<"):
         return []
@@ -89,30 +93,50 @@ def parse_mod_substation(text: str) -> list:
         root = ET.fromstring("<Root>" + stripped + "</Root>")
     except ET.ParseError:
         return []
-    prims = []
-    simple = {}
-    for entity in root.iter("Entity"):
-        etype = (entity.get("Type") or "simple").lower()
-        if etype == "boolean":
-            continue  # 布尔运算第一版按并集近似：跳过，保留参与图元
+
+    def _matrix_pos(entity):
         transform = entity.find("TransformMatrix")
-        pos = [0.0, 0.0, 0.0]
         if transform is not None and transform.get("Value"):
             try:
                 m = [float(x) for x in transform.get("Value").replace(",", " ").split()]
                 if len(m) >= 12:
-                    pos = [m[3], m[7], m[11]]
+                    return [m[3], m[7], m[11]]
             except ValueError:
                 pass
+        return [0.0, 0.0, 0.0]
+
+    def _color(entity, default="#888888"):
         color = entity.find("Color")
-        color_hex = "#888888"
-        if color is not None:
-            try:
-                color_hex = "#{:02X}{:02X}{:02X}".format(
-                    int(color.get("R", "136")), int(color.get("G", "136")), int(color.get("B", "136"))
-                )
-            except ValueError:
-                pass
+        if color is None:
+            return default
+        try:
+            return "#{:02X}{:02X}{:02X}".format(
+                int(color.get("R", "136")), int(color.get("G", "136")), int(color.get("B", "136"))
+            )
+        except ValueError:
+            return default
+
+    prims = []
+    for entity in root.iter("Entity"):
+        etype = (entity.get("Type") or "simple").lower()
+        pos = _matrix_pos(entity)
+        if etype == "boolean":
+            bool_node = entity.find("Boolean")
+            if bool_node is None:
+                continue
+            prims.append(Primitive(
+                name=f"Boolean({bool_node.get('Type', 'Union')})",
+                type=PrimitiveType.BOX,
+                params={
+                    "op": bool_node.get("Type", "Union"),
+                    "entity1": bool_node.get("Entity1", ""),
+                    "entity2": bool_node.get("Entity2", ""),
+                },
+                position=pos,
+                color=_color(entity),
+            ))
+            continue
+        color_hex = _color(entity)
         for child in entity:
             if child.tag not in XML_PRIMITIVES:
                 continue
@@ -126,16 +150,11 @@ def parse_mod_substation(text: str) -> list:
                     params[param_key] = float(raw)
                 except ValueError:
                     continue
-            prim = Primitive(
+            prims.append(Primitive(
                 name=child.tag,
                 type=ptype,
                 params=params,
                 position=pos,
                 color=color_hex,
-            )
-            prims.append(prim)
-            try:
-                simple[entity.get("ID")] = prim
-            except (TypeError, KeyError):
-                pass
+            ))
     return prims

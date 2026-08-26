@@ -294,7 +294,7 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
     assets.append(node)
 
     stats = {"towers": 0, "wires": 0, "cross": 0, "tower_assets": 0}
-    sag_done = False
+    sag_segs: list = []
 
     for child in _collect_children(files, cbm_path):
         child_records = parse_kv_dict(_decode(files[child]))
@@ -305,8 +305,8 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
             for k in stats:
                 stats[k] += sub.get(k, 0)
         elif child_entity == "F4SYSTEM":
-            group_stats = _handle_group(files, child, header, node, assets, sag_done)
-            sag_done = sag_done or group_stats.get("sag_added", False)
+            group_stats = _handle_group(files, child, header, node, assets)
+            sag_segs.extend(group_stats.get("sag_segs", []))
             stats["towers"] += group_stats.get("towers", 0)
             stats["wires"] += group_stats.get("wires", 0)
             stats["cross"] += group_stats.get("cross", 0)
@@ -314,6 +314,21 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
         elif child_entity in ("TOWER_DEVICE", "WIRE_DEVICE", "WIRE", "CROSS", "DEVICE"):
             # 工程包中散落的子设备：聚合统计，不逐个建模
             stats["wires"] += 1
+
+    # 全档弧垂曲线挂 F3（每档一条折线，米制局部坐标）
+    if sag_segs:
+        node.geometry = Geometry(
+            primitives=[
+                Primitive(
+                    name="导线弧垂",
+                    type=PrimitiveType.LINE,
+                    params={"start": s["start"], "end": s["end"]},
+                    material="conductor",
+                )
+                for s in sag_segs
+            ]
+        )
+        node.geometry.unit = "m"
 
     # 聚合统计写入层级属性
     if stats["towers"]:
@@ -326,12 +341,12 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
 
 
 def _handle_group(files: dict, group_path: str, header: GimHeader,
-                  f3_node: ModelAsset, assets: list, sag_done: bool) -> dict:
-    """F4 设备组：塔组逐基建模；导体组聚合 + 抽样弧垂；交叉跨越聚合。"""
+                  f3_node: ModelAsset, assets: list) -> dict:
+    """F4 设备组：塔组逐基建模；导体组全档弧垂；交叉跨越聚合。"""
     records = parse_kv_dict(_decode(files[group_path]))
     base = Path(group_path).parent.as_posix()
     group_type = records.get("GROUPTYPE", "").upper()
-    stats = {"towers": 0, "wires": 0, "cross": 0, "tower_assets": 0, "sag_added": False}
+    stats = {"towers": 0, "wires": 0, "cross": 0, "tower_assets": 0, "sag_segs": []}
 
     if group_type == "TOWER":
         stats["towers"] = 1
@@ -350,25 +365,12 @@ def _handle_group(files: dict, group_path: str, header: GimHeader,
         stats["wires"] += sum(1 for k in records if k.upper().startswith("BASE") and k not in ("BASEFAMILY",))
     elif group_type == "WIRE":
         stats["wires"] = 1
-        # 抽样：每耐张段第一条导线档生成弧垂曲线（挂 F3 节点）
-        if not sag_done:
-            wire_cbm = _first_wire_cbm(files, group_path)
-            if wire_cbm:
-                segs = _wire_sag_segments(files, wire_cbm)
-                if segs:
-                    f3_node.geometry = Geometry(
-                        primitives=[
-                            Primitive(
-                                name="导线弧垂",
-                                type=PrimitiveType.LINE,
-                                params={"start": s["start"], "end": s["end"]},
-                                material="conductor",
-                            )
-                            for s in segs
-                        ]
-                    )
-                    f3_node.geometry.unit = "m"
-                    stats["sag_added"] = True
+        # 全档展开：每个导线档生成弧垂曲线
+        wire_cbm = _first_wire_cbm(files, group_path)
+        if wire_cbm:
+            segs = _wire_sag_segments(files, wire_cbm)
+            if segs:
+                stats["sag_segs"] = segs
     elif group_type == "CROSS":
         stats["cross"] = 1
     return stats
