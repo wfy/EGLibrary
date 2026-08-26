@@ -41,8 +41,20 @@ class GimHeader:
 
 
 def is_gim(data: bytes) -> bool:
-    """判断数据是否为真实 GIM 专有容器。"""
-    return any(data.startswith(m) for m in KIND_BY_MAGIC)
+    """判断数据是否为真实 GIM 容器。
+
+    两种形态（厂商实现有差异，均实测验证）：
+    - 带 GIMPKGS/GIMPKGT/GIMPKEC 头 + 7z 存储域
+    - 裸 7z 流（无自定义头，如部分线路工程包）
+    """
+    if any(data.startswith(m) for m in KIND_BY_MAGIC):
+        return True
+    return data.startswith(SEVENZIP_MAGIC)
+
+
+def is_bare_7z(data: bytes) -> bool:
+    """无自定义头的裸 7z 容器。"""
+    return not any(data.startswith(m) for m in KIND_BY_MAGIC) and data.startswith(SEVENZIP_MAGIC)
 
 
 def _decode(raw: bytes) -> str:
@@ -69,11 +81,15 @@ def parse_header(data: bytes) -> GimHeader:
     if not is_gim(data):
         raise ValueError("不是 GIM 专有容器（文件标识不符）")
 
-    kind = next(k for m, k in KIND_BY_MAGIC.items() if data.startswith(m))
     store_offset = data.find(SEVENZIP_MAGIC)
     if store_offset < 0:
         raise ValueError("未找到 7z 存储域（文件可能损坏）")
 
+    if is_bare_7z(data):
+        # 裸 7z：无头部元数据，工程类型待解析内部 cbm 后推断
+        return GimHeader(kind="unknown", store_offset=store_offset)
+
+    kind = next(k for m, k in KIND_BY_MAGIC.items() if data.startswith(m))
     header = GimHeader(
         kind=kind,
         name=_read_cstring(data, _NAME_OFFSET),
@@ -87,12 +103,12 @@ def parse_header(data: bytes) -> GimHeader:
 
     strings = _extract_cjk_strings(head)
     header.extra_strings = [s for _, s in strings]
-    for _, text in strings:
+    for off, text in strings:
         if "系统" in text or "设计" in text or "软件" in text:
             header.software = text
             break
-    # 组织单位取其余串中最长者（堆数据误报通常较短）
-    rest = [t for _, t in strings if t != header.software]
-    if rest:
-        header.organization = max(rest, key=len)
+    for off, text in strings:
+        if text != header.software:
+            header.organization = text
+            break
     return header

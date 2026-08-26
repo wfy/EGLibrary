@@ -106,14 +106,37 @@ class ModelService:
         return self.repo.list_versions(model_id)
 
     # ---------- 分类 ----------
-    def list_categories(self) -> List[str]:
+    def list_categories(self) -> List[dict]:
         return self.repo.list_categories()
 
-    def add_category(self, name: str) -> str:
+    def list_category_tree(self) -> List[dict]:
+        """两级分类树：[{id, name, parent_id, children: [...]}]。"""
+        rows = self.repo.list_categories()
+        roots = [r for r in rows if not r["parent_id"]]
+        by_parent: Dict[Optional[int], List[dict]] = {}
+        for r in rows:
+            if r["parent_id"]:
+                by_parent.setdefault(r["parent_id"], []).append(
+                    {"id": r["id"], "name": r["name"], "parent_id": r["parent_id"], "children": []}
+                )
+        tree = []
+        for root in roots:
+            node = {"id": root["id"], "name": root["name"], "parent_id": None,
+                    "children": by_parent.get(root["id"], [])}
+            tree.append(node)
+        return tree
+
+    def add_category(self, name: str, parent: Optional[str] = None) -> int:
         name = (name or "").strip()
         if not name:
             raise ValueError("分类名称不能为空")
-        return self.repo.add_category(name)
+        parent_id = None
+        if parent:
+            matched = next((c for c in self.repo.list_categories() if c["name"] == parent), None)
+            if not matched:
+                raise ValueError(f"父分类不存在: {parent}")
+            parent_id = matched["id"]
+        return self.repo.add_category(name, parent_id=parent_id)
 
     # ---------- 文件存储 ----------
     def _file_path(self, model_id: str, relative_path: str) -> Path:
@@ -241,15 +264,32 @@ class ModelService:
         name: Optional[str],
         voltage_level: str,
     ) -> List[ModelAsset]:
-        """真实 GIM 专有容器：解析属性与几何，原包同时存档。"""
+        """真实 GIM 专有容器：解析属性与几何，原包仅随根模型存档一份。"""
         assets = parse_gim(content)
         created = []
-        for asset in assets:
-            if name:
+        # STL 挂件落盘到根模型目录（供三维端点按需加载）
+        stl_files = {}
+        from .gim.container import unpack_store
+        from .gim.header import parse_header as _gim_header
+        try:
+            store = unpack_store(content, _gim_header(content).store_offset)
+            for rel, blob in store.items():
+                if rel.lower().endswith(".stl"):
+                    stl_files[rel] = blob
+        except Exception:
+            stl_files = {}  # STL 落盘失败不阻断导入
+
+        for i, asset in enumerate(assets):
+            is_root = not asset.parent_id
+            if name and is_root:
                 asset.name = name
             asset.voltage_level = asset.voltage_level or voltage_level
-            model_file = self._store_uploaded_file(asset.id, src.name, content)
-            asset.files = [model_file]
+            if is_root:
+                # 原包只存档一份（挂根模型），子模型不重复落盘
+                model_file = self._store_uploaded_file(asset.id, src.name, content)
+                asset.files = [model_file]
+                for rel, blob in stl_files.items():
+                    asset.files.append(self._store_uploaded_file(asset.id, rel, blob))
             created.append(self.repo.create_model(asset))
         return created
 

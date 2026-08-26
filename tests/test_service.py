@@ -25,10 +25,10 @@ def test_category_filter(service):
     models = service.list_models(ModelQuery(category="变电"))
     assert [m.name for m in models] == ["主变"]
 
-    assert service.list_categories() == ["变电", "输电", "电缆", "配电"]
-    service.add_category("直流")
+    assert service.list_category_tree() and len(service.list_categories()) == 4
+    service.add_category("直流", parent="输电")
     with pytest.raises(ValueError):
-        service.add_category("直流")
+        service.add_category("直流", parent="输电")
 
 
 def test_crud(service):

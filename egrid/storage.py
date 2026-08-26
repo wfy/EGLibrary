@@ -95,6 +95,17 @@ class ModelRepository:
             cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(models)")}
             if "category" not in cols:
                 self._conn.execute("ALTER TABLE models ADD COLUMN category TEXT DEFAULT ''")
+            for col in ("subcategory", "source", "origin"):
+                if col not in cols:
+                    self._conn.execute(
+                        f"ALTER TABLE models ADD COLUMN {col} TEXT DEFAULT ''"
+                        if col != "origin" else
+                        "ALTER TABLE models ADD COLUMN origin TEXT DEFAULT '{}'"
+                    )
+            # categories 表补 parent_id（两级分类树）
+            ccols = {r["name"] for r in self._conn.execute("PRAGMA table_info(categories)")}
+            if "parent_id" not in ccols:
+                self._conn.execute("ALTER TABLE categories ADD COLUMN parent_id INTEGER")
             # 分类预置
             existing = self._conn.execute("SELECT COUNT(*) AS c FROM categories").fetchone()["c"]
             if not existing:
@@ -108,19 +119,22 @@ class ModelRepository:
             self._conn.close()
             self._conn = None
 
-    def list_categories(self) -> List[str]:
-        rows = self._conn.execute("SELECT name FROM categories ORDER BY id").fetchall()
-        return [r["name"] for r in rows]
+    def list_categories(self) -> List[dict]:
+        rows = self._conn.execute(
+            "SELECT id, name, parent_id FROM categories ORDER BY id"
+        ).fetchall()
+        return [{"id": r["id"], "name": r["name"], "parent_id": r["parent_id"]} for r in rows]
 
-    def add_category(self, name: str) -> str:
+    def add_category(self, name: str, parent_id: Optional[int] = None) -> int:
         try:
             with self._conn:
-                self._conn.execute(
-                    "INSERT INTO categories (name) VALUES (?)", (name,)
+                cur = self._conn.execute(
+                    "INSERT INTO categories (name, parent_id) VALUES (?, ?)",
+                    (name, parent_id),
                 )
         except sqlite3.IntegrityError as exc:
             raise ValueError(f"分类已存在: {name}") from exc
-        return name
+        return cur.lastrowid
 
     def create_model(self, asset: ModelAsset) -> ModelAsset:
         asset.id = asset.id or new_guid()
@@ -129,16 +143,20 @@ class ModelRepository:
             self._conn.execute(
                 """
                 INSERT INTO models (
-                    id, name, code, category, model_type, stage, specialty, voltage_level,
+                    id, name, code, category, subcategory, source, origin,
+                    model_type, stage, specialty, voltage_level,
                     version, description, tags, attributes, files, geometry,
                     parent_id, level, created_at, updated_at, created_by, extra
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     asset.id,
                     asset.name,
                     asset.code,
                     asset.category,
+                    asset.subcategory,
+                    asset.source,
+                    _json_dumps(asset.origin),
                     asset.model_type.value,
                     asset.stage.value,
                     asset.specialty.value,
@@ -177,6 +195,12 @@ class ModelRepository:
         if q.category:
             sql += " AND category = ?"
             params.append(q.category)
+        if getattr(q, "subcategory", None):
+            sql += " AND subcategory = ?"
+            params.append(q.subcategory)
+        if getattr(q, "source", None):
+            sql += " AND source = ?"
+            params.append(q.source)
         if q.model_type:
             sql += " AND model_type = ?"
             params.append(q.model_type.value)
@@ -214,7 +238,8 @@ class ModelRepository:
             self._conn.execute(
                 """
                 UPDATE models SET
-                    name = ?, code = ?, category = ?, model_type = ?, stage = ?, specialty = ?,
+                    name = ?, code = ?, category = ?, subcategory = ?, source = ?, origin = ?,
+                    model_type = ?, stage = ?, specialty = ?,
                     voltage_level = ?, version = ?, description = ?, tags = ?,
                     attributes = ?, files = ?, geometry = ?, parent_id = ?,
                     level = ?, updated_at = ?, created_by = ?, extra = ?
@@ -224,6 +249,9 @@ class ModelRepository:
                     asset.name,
                     asset.code,
                     asset.category,
+                    asset.subcategory,
+                    asset.source,
+                    _json_dumps(asset.origin),
                     asset.model_type.value,
                     asset.stage.value,
                     asset.specialty.value,
@@ -302,6 +330,9 @@ class ModelRepository:
             name=row["name"],
             code=row["code"],
             category=row["category"] or "",
+            subcategory=row["subcategory"] or "",
+            source=(row["source"] if "source" in row.keys() else "manual") or "manual",
+            origin=_json_loads(row["origin"]) if "origin" in row.keys() and row["origin"] else {},
             model_type=row["model_type"],
             stage=row["stage"],
             specialty=row["specialty"],

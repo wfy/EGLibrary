@@ -77,20 +77,21 @@ def list_models(
 
 class CategoryCreate(BaseModel):
     name: str
+    parent: Optional[str] = None
 
 
 @app.get("/api/categories")
 def list_categories():
-    return [{"name": n} for n in service.list_categories()]
+    return service.list_category_tree()
 
 
 @app.post("/api/categories", status_code=201)
 def add_category(payload: CategoryCreate):
     try:
-        service.add_category(payload.name)
+        service.add_category(payload.name, parent=payload.parent)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"name": payload.name.strip()}
+    return {"name": payload.name.strip(), "parent": payload.parent}
 
 
 @app.post("/api/models", response_model=ModelAsset, status_code=201)
@@ -189,6 +190,27 @@ def pointcloud(model_id: str, count: int = Query(500, ge=1, le=100000), seed: Op
     if not model:
         raise HTTPException(status_code=404, detail="模型不存在")
     return sample_model_pointcloud(model, count=count, seed=seed)
+
+
+@app.get("/api/models/{model_id}/stl/{stl_path:path}")
+def get_stl(model_id: str, stl_path: str):
+    """按需返回 STL 挂件三角面（三维预览加载用）。"""
+    from .gim.parsers.stl import stl_triangles
+
+    model = service.get_model(model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="模型不存在")
+    target = next(
+        (f for f in model.files if f.kind.value == "stl" and f.path.lower() == stl_path.lower()),
+        None,
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="STL 文件不存在")
+    file_path = Path(service.storage_dir) / model_id / target.path
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="STL 文件缺失")
+    triangles = [t for t in stl_triangles(file_path.read_bytes())]
+    return {"path": target.path, "count": len(triangles), "triangles": triangles}
 
 
 @app.get("/api/stats")

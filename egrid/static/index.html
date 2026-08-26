@@ -38,6 +38,13 @@
   #model-list li:hover { background: #f5f7ff; }
   #model-list li.active { background: #e8eeff; border-left: 3px solid #2b5fd9; padding-left: 11px; }
   #model-list .m-code { color: #999; font-size: 11px; margin-left: 4px; }
+  .src-badge {
+    display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px;
+    font-size: 10px; background: #e8f4ec; color: #2e7d4f; border: 1px solid #bfe0cc;
+    vertical-align: middle;
+  }
+  .src-badge.gim { background: #e8eeff; color: #2b5fd9; border-color: #c3d2f5; }
+  #cat-list li.sub { padding-left: 22px; color: #667; }
   #list-count { padding: 5px 14px; font-size: 11px; color: #999; }
 
   /* ---------- 信息栏（含操作区） ---------- */
@@ -122,6 +129,7 @@
   </header>
   <div class="filters">
     <select id="filter-category"><option value="">全部大类</option></select>
+    <select id="filter-subcategory"><option value="">全部子类</option></select>
     <select id="filter-type"><option value="">全部类型</option></select>
     <select id="filter-voltage">
       <option value="">全部电压</option>
@@ -199,9 +207,11 @@
 <dialog id="dlg-cats">
   <h3>分类管理</h3>
   <ul class="versions" id="cat-list"></ul>
+  <label>父分类（留空则为大类）</label>
+  <select id="c-parent"><option value="">— 作为大类 —</option></select>
   <label>新分类名称</label>
   <div class="toolbar">
-    <input id="c-name" placeholder="如：直流" style="flex:1">
+    <input id="c-name" placeholder="如：杆塔 / 直流" style="flex:1">
     <button class="primary" id="c-add">添加</button>
   </div>
   <div class="dialog-actions">
@@ -219,6 +229,7 @@ let currentModel = null;
 
 const TYPE_LABELS = { device: "设备", material: "材料", civil: "构筑物", system: "系统", line: "线路", other: "其他" };
 const STAGE_LABELS = { common: "通用库", product: "产品库", finished: "成品库", custom: "自定义" };
+const SOURCE_LABELS = { manual: "手工", gim: "GIM 导入", zip: "ZIP 载体" };
 const CATEGORY_LABELS = {
   design: "设计参数", design_frozen: "设计冻结参数", product: "产品参数",
   construction: "施工参数", test: "测试参数", operation: "运检参数",
@@ -563,6 +574,7 @@ async function refreshList() {
   const params = new URLSearchParams();
   if ($("search").value.trim()) params.set("keyword", $("search").value.trim());
   if ($("filter-category").value) params.set("category", $("filter-category").value);
+  if ($("filter-subcategory").value) params.set("subcategory", $("filter-subcategory").value);
   if ($("filter-type").value) params.set("model_type", $("filter-type").value);
   if ($("filter-voltage").value) params.set("voltage_level", $("filter-voltage").value);
   const models = await (await api("/api/models?" + params.toString())).json();
@@ -574,8 +586,8 @@ async function refreshList() {
     li.dataset.id = m.id;
     if (m.id === currentId) li.classList.add("active");
     li.innerHTML =
-      `<span>${escapeHtml(m.name)}</span><span class="m-code">${escapeHtml(m.code)}</span>` +
-      (m.category ? `<div class="m-code">［${escapeHtml(m.category)}］</div>` : "");
+      `<span>${escapeHtml(m.name)}</span>${sourceBadge(m)}<span class="m-code">${escapeHtml(m.code)}</span>` +
+      `<div class="m-code">［${escapeHtml(m.category || "未分类")}${m.subcategory ? " / " + escapeHtml(m.subcategory) : ""}］</div>`;
     li.onclick = () => selectModel(m.id);
     ul.appendChild(li);
   }
@@ -605,9 +617,15 @@ function renderInfoPanel(model) {
   for (const a of attrs) {
     (groups[a.category || "design"] = groups[a.category || "design"] || []).push(a);
   }
+  const origin = model.origin || {};
+  const originText = origin["软件名称"]
+    ? `${origin["软件名称"]}${origin["组织单位"] ? " · " + origin["组织单位"] : ""}${origin["原始创建时间"] ? " · " + origin["原始创建时间"] : ""}`
+    : "—";
   const basicRows = [
     ["编码", model.code || "—"],
     ["大类", model.category || "—"],
+    ["子分类", model.subcategory || "—"],
+    ["来源", (SOURCE_LABELS[model.source] || model.source || "手工") + "　" + originText],
     ["电压等级", model.voltage_level || "—"],
     ["类型", TYPE_LABELS[model.model_type] || model.model_type],
     ["阶段", STAGE_LABELS[model.stage] || model.stage],
@@ -742,15 +760,33 @@ $("import-file").onchange = async () => {
 };
 
 // ---------- 分类管理 ----------
+let catTree = [];
+
 async function refreshCategories() {
-  const cats = await (await api("/api/categories")).json();
-  const names = cats.map((c) => c.name);
+  catTree = await (await api("/api/categories")).json();
   const sel = $("filter-category"), cur = sel.value;
   sel.innerHTML = '<option value="">全部大类</option>' +
-    names.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
+    catTree.map((c) => `<option>${escapeHtml(c.name)}</option>`).join("");
   sel.value = cur;
+  syncSubcategoryFilter();
+  const names = catTree.map((c) => c.name);
   $("n-category").innerHTML = names.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
   return names;
+}
+
+function syncSubcategoryFilter() {
+  const sel = $("filter-subcategory");
+  const curCat = $("filter-category").value;
+  const node = catTree.find((c) => c.name === curCat);
+  const subs = node ? node.children : [];
+  sel.innerHTML = '<option value="">全部子类</option>' +
+    subs.map((c) => `<option>${escapeHtml(c.name)}</option>`).join("");
+}
+
+function sourceBadge(m) {
+  if (m.source === "gim") return '<span class="src-badge gim">GIM</span>';
+  if (m.source === "zip") return '<span class="src-badge">ZIP</span>';
+  return "";
 }
 
 $("btn-cats").onclick = async () => {
@@ -760,28 +796,37 @@ $("btn-cats").onclick = async () => {
 $("c-close").onclick = () => $("dlg-cats").close();
 
 async function renderCatList() {
-  const names = await refreshCategories();
-  $("cat-list").innerHTML = names.map((n) => `<li>▸ ${escapeHtml(n)}</li>`).join("");
+  await refreshCategories();
+  $("cat-list").innerHTML = catTree.map((c) =>
+    `<li>▸ ${escapeHtml(c.name)}</li>` +
+    (c.children || []).map((s) => `<li class="sub">└ ${escapeHtml(s.name)}</li>`).join("")
+  ).join("");
+  const sel = $("c-parent");
+  sel.innerHTML = '<option value="">— 作为大类 —</option>' +
+    catTree.map((c) => `<option>${escapeHtml(c.name)}</option>`).join("");
 }
 
 $("c-add").onclick = async () => {
   const name = $("c-name").value.trim();
   if (!name) { toast("分类名称不能为空"); return; }
+  const parentSel = $("c-parent");
+  const parent = parentSel && parentSel.value ? parentSel.value : null;
   try {
     await api("/api/categories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, parent }),
     });
     $("c-name").value = "";
-    toast("已添加分类：" + name);
+    toast("已添加分类：" + name + (parent ? "（" + parent + "）" : ""));
     await renderCatList();
   } catch (e) { toast("失败：" + e.message); }
 };
 
 // ---------- 搜索 / 筛选 ----------
 $("search").addEventListener("keydown", (ev) => { if (ev.key === "Enter") refreshList(); });
-$("filter-category").onchange = refreshList;
+$("filter-category").onchange = () => { syncSubcategoryFilter(); refreshList(); };
+$("filter-subcategory").onchange = refreshList;
 $("filter-type").onchange = refreshList;
 $("filter-voltage").onchange = refreshList;
 

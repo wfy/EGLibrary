@@ -127,6 +127,9 @@ class ModelAsset(BaseModel):
     geometry: Geometry = Field(default_factory=Geometry)
     parent_id: Optional[str] = None    # 支持 F1-F5 层级
     level: int = 4                     # 1-5，默认设备级
+    subcategory: str = ""              # 子分类：杆塔/导线/绝缘子串等（挂大类下）
+    source: str = "manual"             # 来源：manual/gim/zip
+    origin: Dict[str, Any] = Field(default_factory=dict)  # 溯源：原文件名/软件/单位/原始时间
     created_at: str = Field(default_factory=utcnow)
     updated_at: str = Field(default_factory=utcnow)
     created_by: str = "system"
@@ -139,6 +142,8 @@ class ModelAsset(BaseModel):
 class ModelQuery(BaseModel):
     keyword: Optional[str] = None
     category: Optional[str] = None
+    subcategory: Optional[str] = None
+    source: Optional[str] = None
     model_type: Optional[ModelType] = None
     stage: Optional[ModelStage] = None
     specialty: Optional[Specialty] = None
