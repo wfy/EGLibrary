@@ -98,6 +98,8 @@ def parse_mod_substation(text: str) -> list:
         transform = entity.find("TransformMatrix")
         if transform is not None and transform.get("Value"):
             try:
+                # 变电 XML 的 TransformMatrix 为规范行主序（平移在 3/7/11），
+                # 与 dev/phm/cbm 的厂商布局不同，不转置
                 m = [float(x) for x in transform.get("Value").replace(",", " ").split()]
                 if len(m) >= 12:
                     return [m[3], m[7], m[11]]

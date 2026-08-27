@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import threading
 from pathlib import Path
 from typing import List, Optional
 
@@ -37,6 +38,7 @@ class ModelRepository:
 
     def __init__(self, db_path: str = "data/eglibrary.db"):
         self.db_path = db_path
+        self._lock = threading.RLock()   # FastAPI 线程池并发共享连接保护
         if self.db_path != ":memory:":
             parent = os.path.dirname(os.path.abspath(db_path))
             Path(parent).mkdir(parents=True, exist_ok=True)
@@ -87,7 +89,8 @@ class ModelRepository:
 
                 CREATE TABLE IF NOT EXISTS categories (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE
+                    parent_id INTEGER,
+                    name TEXT NOT NULL
                 );
                 """
             )
@@ -102,10 +105,37 @@ class ModelRepository:
                         if col != "origin" else
                         "ALTER TABLE models ADD COLUMN origin TEXT DEFAULT '{}'"
                     )
-            # categories 表补 parent_id（两级分类树）
+            # 分类双维度：categories=电力领域（平级），equipment_types=设备类型（全局清单）
             ccols = {r["name"] for r in self._conn.execute("PRAGMA table_info(categories)")}
-            if "parent_id" not in ccols:
-                self._conn.execute("ALTER TABLE categories ADD COLUMN parent_id INTEGER")
+            if "parent_id" in ccols or "UNIQUE" in (
+                self._conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE type='table' AND name='categories'"
+                ).fetchone()["sql"] or ""
+            ).upper():
+                # 树状/带约束旧表重建为平级表
+                copy_sql = (
+                    "SELECT DISTINCT name FROM categories WHERE parent_id IS NULL"
+                    if "parent_id" in ccols
+                    else "SELECT DISTINCT name FROM categories"
+                )
+                self._conn.executescript(
+                    f"""
+                    DROP TABLE IF EXISTS categories_new;
+                    CREATE TABLE categories_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL UNIQUE
+                    );
+                    INSERT OR IGNORE INTO categories_new (name) {copy_sql};
+                    DROP TABLE categories;
+                    ALTER TABLE categories_new RENAME TO categories;
+                    """
+                )
+            self._conn.execute(
+                """CREATE TABLE IF NOT EXISTS equipment_types (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE
+                )"""
+            )
             # 分类预置
             existing = self._conn.execute("SELECT COUNT(*) AS c FROM categories").fetchone()["c"]
             if not existing:
@@ -113,33 +143,81 @@ class ModelRepository:
                     "INSERT INTO categories (name) VALUES (?)",
                     [("变电",), ("输电",), ("电缆",), ("配电",)],
                 )
+            # 设备类型预置（与 SUBCATEGORY_MAP 对齐）
+            et = self._conn.execute("SELECT COUNT(*) AS c FROM equipment_types").fetchone()["c"]
+            if not et:
+                self._conn.executemany(
+                    "INSERT INTO equipment_types (name) VALUES (?)",
+                    [("杆塔",), ("导线",), ("地线",), ("绝缘子串",), ("金具",),
+                     ("基础",), ("交叉跨越",), ("设备",)],
+                )
 
     def close(self) -> None:
         if self._conn:
             self._conn.close()
             self._conn = None
 
-    def list_categories(self) -> List[dict]:
-        rows = self._conn.execute(
-            "SELECT id, name, parent_id FROM categories ORDER BY id"
-        ).fetchall()
-        return [{"id": r["id"], "name": r["name"], "parent_id": r["parent_id"]} for r in rows]
+    def list_categories(self) -> List[str]:
+        with self._lock:
+            rows = self._conn.execute("SELECT name FROM categories ORDER BY id").fetchall()
+        return [r["name"] for r in rows]
 
-    def add_category(self, name: str, parent_id: Optional[int] = None) -> int:
+    def add_category(self, name: str) -> int:
         try:
-            with self._conn:
+            with self._lock, self._conn:
                 cur = self._conn.execute(
-                    "INSERT INTO categories (name, parent_id) VALUES (?, ?)",
-                    (name, parent_id),
+                    "INSERT INTO categories (name) VALUES (?)", (name,)
                 )
         except sqlite3.IntegrityError as exc:
-            raise ValueError(f"分类已存在: {name}") from exc
+            raise ValueError(f"领域已存在: {name}") from exc
         return cur.lastrowid
+
+    def delete_category(self, name: str) -> bool:
+        """删除领域；被模型引用时同步清空模型 category 字段。"""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM categories WHERE name = ?", (name,))
+            if cur.rowcount:
+                self._conn.execute(
+                    "UPDATE models SET category = '' WHERE category = ?", (name,)
+                )
+        return cur.rowcount > 0
+
+    def list_equipment_types(self) -> List[str]:
+        with self._lock:
+            rows = self._conn.execute("SELECT name FROM equipment_types ORDER BY id").fetchall()
+        return [r["name"] for r in rows]
+
+    def add_equipment_type(self, name: str) -> int:
+        try:
+            with self._lock, self._conn:
+                cur = self._conn.execute(
+                    "INSERT INTO equipment_types (name) VALUES (?)", (name,)
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ValueError(f"设备类型已存在: {name}") from exc
+        return cur.lastrowid
+
+    def upsert_equipment_type(self, name: str) -> None:
+        """设备类型注册（导入自动扩展，存在则忽略）。"""
+        with self._lock, self._conn:
+            self._conn.execute(
+                "INSERT OR IGNORE INTO equipment_types (name) VALUES (?)", (name,)
+            )
+
+    def delete_equipment_type(self, name: str) -> bool:
+        """删除设备类型；被模型引用时同步清空模型 subcategory 字段。"""
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM equipment_types WHERE name = ?", (name,))
+            if cur.rowcount:
+                self._conn.execute(
+                    "UPDATE models SET subcategory = '' WHERE subcategory = ?", (name,)
+                )
+        return cur.rowcount > 0
 
     def create_model(self, asset: ModelAsset) -> ModelAsset:
         asset.id = asset.id or new_guid()
         asset.touch()
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.execute(
                 """
                 INSERT INTO models (
@@ -178,16 +256,25 @@ class ModelRepository:
         return asset
 
     def get_model(self, model_id: str) -> Optional[ModelAsset]:
-        row = self._conn.execute(
-            "SELECT * FROM models WHERE id = ?", (model_id,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM models WHERE id = ?", (model_id,)
+            ).fetchone()
         return self._row_to_asset(row) if row else None
 
     def list_models(self, query: Optional[ModelQuery] = None) -> List[ModelAsset]:
         q = query or ModelQuery()
+        sql, params = self._where_clause(q)
+        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        params.extend([q.limit, q.offset])
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
+        return [self._row_to_asset(r) for r in rows]
+
+    def _where_clause(self, q: ModelQuery) -> tuple:
+        """构造 WHERE 子句与参数（list_models / count_models 共用）。"""
         sql = "SELECT * FROM models WHERE 1=1"
         params: list = []
-
         if q.keyword:
             sql += " AND (name LIKE ? OR code LIKE ? OR description LIKE ?)"
             like = f"%{q.keyword}%"
@@ -224,17 +311,21 @@ class ModelRepository:
             for tag in q.tags:
                 sql += " AND tags LIKE ?"
                 params.append(f"%{tag}%")
+        return sql, params
 
-        sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
-        params.extend([q.limit, q.offset])
-        rows = self._conn.execute(sql, params).fetchall()
-        return [self._row_to_asset(r) for r in rows]
+    def count_models(self, query: Optional[ModelQuery] = None) -> int:
+        """同过滤条件下的总数（分页用）。"""
+        q = query or ModelQuery()
+        sql, params = self._where_clause(q)
+        sql = sql.replace("SELECT * FROM models", "SELECT COUNT(*) AS c FROM models")
+        with self._lock:
+            return self._conn.execute(sql, params).fetchone()["c"]
 
     def update_model(self, asset: ModelAsset) -> Optional[ModelAsset]:
         if not self.get_model(asset.id):
             return None
         asset.touch()
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.execute(
                 """
                 UPDATE models SET
@@ -273,14 +364,15 @@ class ModelRepository:
         return asset
 
     def delete_model(self, model_id: str) -> bool:
-        cur = self._conn.execute("DELETE FROM models WHERE id = ?", (model_id,))
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM models WHERE id = ?", (model_id,))
         return cur.rowcount > 0
 
     def add_version(self, model_id: str, version: ModelVersion) -> ModelVersion:
         version.id = version.id or new_guid()
         if not version.created_at:
             version.created_at = utcnow()
-        with self._conn:
+        with self._lock, self._conn:
             self._conn.execute(
                 """
                 INSERT INTO model_versions (id, model_id, version, note, created_at, data)
@@ -298,10 +390,11 @@ class ModelRepository:
         return version
 
     def list_versions(self, model_id: str) -> List[ModelVersion]:
-        rows = self._conn.execute(
-            "SELECT * FROM model_versions WHERE model_id = ? ORDER BY created_at DESC",
-            (model_id,),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT * FROM model_versions WHERE model_id = ? ORDER BY created_at DESC",
+                (model_id,),
+            ).fetchall()
         return [
             ModelVersion(
                 id=r["id"],
@@ -314,13 +407,14 @@ class ModelRepository:
         ]
 
     def stats(self) -> dict:
-        total = self._conn.execute("SELECT COUNT(*) AS c FROM models").fetchone()["c"]
-        by_type = {
-            r["model_type"]: r["c"]
-            for r in self._conn.execute(
-                "SELECT model_type, COUNT(*) AS c FROM models GROUP BY model_type"
-            ).fetchall()
-        }
+        with self._lock:
+            total = self._conn.execute("SELECT COUNT(*) AS c FROM models").fetchone()["c"]
+            by_type = {
+                r["model_type"]: r["c"]
+                for r in self._conn.execute(
+                    "SELECT model_type, COUNT(*) AS c FROM models GROUP BY model_type"
+                ).fetchall()
+            }
         return {"total": total, "by_type": by_type}
 
     @staticmethod

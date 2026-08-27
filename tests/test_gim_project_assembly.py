@@ -50,16 +50,25 @@ def test_tower_assets_with_geometry(project_assets):
     assert some.origin.get("BLHA")
 
 
-def test_wire_aggregated_into_f3(project_assets):
-    f3 = [a for a in project_assets if a.description and "F3SYSTEM" in a.description.upper()]
-    with_stats = [a for a in f3 if any("导线档数" in x.key for x in a.attributes)]
-    assert len(with_stats) > 50
-    # 全档展开：每个 F3 都有弧垂曲线，段数 ≈ 档数 × 24
-    with_sag = [a for a in f3 if a.geometry.primitives]
-    assert len(with_sag) == len(f3)
-    sample = max(with_sag, key=lambda a: len(a.geometry.primitives))
-    n_wires = next(int(x.value) for x in sample.attributes if x.key == "导线档数")
-    assert len(sample.geometry.primitives) >= min(n_wires, 5) * 24 * 0.8
+def test_wire_not_imported(project_assets):
+    """导线不入库（去除导线录入）：无弧垂曲线、无导线档数统计。"""
+    for a in project_assets:
+        assert not any("导线档数" in x.key for x in a.attributes)
+        assert all(p.name != "导线弧垂" for p in a.geometry.primitives)
+
+
+@pytest.mark.skip(reason="绝缘子串逐串建模待性能优化（ENABLE_STRING_ASSETS=False），当前聚合导入 ~2.5min")
+def test_string_assets_under_towers(project_assets):
+    """绝缘子串随塔组建模：挂在塔资产下，subcategory=绝缘子串，带 STL 部件引用。"""
+    strings = [a for a in project_assets if a.subcategory == "绝缘子串"]
+    assert len(strings) > 100
+    with_stl = [a for a in strings if (a.extra.get("stl_parts") or [])]
+    assert len(with_stl) > 50
+    # 串挂在塔下（parent 是杆塔资产）
+    tower_ids = {a.id for a in project_assets if a.subcategory == "杆塔"}
+    assert all(a.parent_id in tower_ids for a in strings)
+    # 带挂点名溯源
+    assert any(a.origin.get("GPOINT") for a in strings)
 
 
 def test_sagcurve_wire():

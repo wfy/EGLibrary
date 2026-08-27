@@ -1,6 +1,8 @@
 """GIM 存储域解包与通用行格式解析测试。"""
 from pathlib import Path
 
+import pytest
+
 from egrid.gim.container import unpack_store
 from egrid.gim.records import parse_fam_text, parse_kv_lines, parse_matrix
 from egrid.gim.header import parse_header
@@ -54,3 +56,29 @@ def test_parse_matrix():
     assert m[3] == 322000.07
     assert m[7] == -42000.08
     assert m[11] == 41000.0
+
+
+def test_parse_transform_layout_autodetect():
+    """厂商矩阵为 [R; t] 列分块按行展开（平移在 12,13,14，3x3 与行主序同序）。
+
+    parse_transform 原样返回（不转置——组合后由 transpose_matrix 统一转置一次，
+    对齐参考实现 XGIMDataGenerator：PHM/DEV 层原样右乘，CBM 层 TransposeSelf）。
+    """
+    from egrid.gim.records import parse_transform, transpose_matrix
+    raw = "-0.916048,0.4010694659,0,0,0,0,-1,0,-0.4010694659,-0.9160476426,0,0,4,0.875,36,1"
+    m = parse_transform(raw)
+    # 原样：平移仍在 12/13/14
+    assert m[12] == pytest.approx(4.0)
+    assert m[13] == pytest.approx(0.875)
+    assert m[14] == pytest.approx(36.0)
+    # 整体转置一次后：平移到 3/7/11，3x3 转置（对齐 TransposeSelf）
+    t = transpose_matrix(m)
+    assert t[3] == pytest.approx(4.0)
+    assert t[7] == pytest.approx(0.875)
+    assert t[11] == pytest.approx(36.0)
+    assert t[12] == t[13] == t[14] == 0.0
+    assert t[15] == 1.0
+
+    # 行主序样本（平移在 3,7,11）原样返回
+    m2 = parse_transform("1,0,0,10,0,1,0,20,0,0,1,30,0,0,0,1")
+    assert m2[3] == 10.0 and m2[7] == 20.0 and m2[11] == 30.0

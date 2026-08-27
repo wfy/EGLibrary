@@ -24,6 +24,13 @@ class FamAttr(NamedTuple):
     value: str
 
 
+# 4x4 单位矩阵（行主序）
+IDENTITY4 = [1.0, 0.0, 0.0, 0.0,
+             0.0, 1.0, 0.0, 0.0,
+             0.0, 0.0, 1.0, 0.0,
+             0.0, 0.0, 0.0, 1.0]
+
+
 def parse_kv_lines(text: str) -> list:
     """解析 "KEY = value" 行序列，返回 [(key, value)]，忽略空行与注释。"""
     records = []
@@ -70,7 +77,35 @@ def parse_matrix(text: str) -> list:
     return [float(x) for x in text.replace(",", " ").split()]
 
 
+def parse_transform(text: str) -> list:
+    """解析 GIM 变换矩阵，返回 4 行×4 值原样布局（平移在 12/13/14）。
+
+    对齐参考实现 XGIMDataGenerator：各层矩阵读入原样、右乘组合（A·B），
+    组合完成后由 transpose_matrix 统一转置一次（等效 CBM 层 TransposeSelf）。
+    """
+    return parse_matrix(text)
+
+
+def transpose_matrix(m: list) -> list:
+    """4x4 行主序数组转置。GIM 原生布局（平移在 12/13/14）转置后
+    平移落到 3/7/11，可用于标准 M·v 列向量变换。"""
+    if len(m) != 16:
+        return m
+    return [m[c * 4 + r] for r in range(4) for c in range(4)]
+
+
 def matrix_translation(text_or_values) -> list:
     """取变换矩阵的平移分量 (M14, M24, M34)。"""
     m = text_or_values if isinstance(text_or_values, list) else parse_matrix(text_or_values)
     return [m[3], m[7], m[11]]
+
+
+def mat4_multiply(a: list, b: list) -> list:
+    """4x4 行主序矩阵乘法 A·B（列向量右乘约定：v' = A·(B·v)）。"""
+    out = [0.0] * 16
+    for r in range(4):
+        for c in range(4):
+            out[r * 4 + c] = sum(
+                a[r * 4 + k] * b[k * 4 + c] for k in range(4)
+            )
+    return out

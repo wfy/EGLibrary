@@ -38,8 +38,27 @@ class VersionCreate(BaseModel):
     note: str = ""
 
 
+class ImportedSummary(BaseModel):
+    """导入结果摘要（不含几何/属性，工程级导入可达数百模型）。"""
+    id: str
+    name: str
+    category: str = ""
+    subcategory: str = ""
+    parent_id: Optional[str] = None
+
+
 class ImportResult(BaseModel):
-    created: List[ModelAsset]
+    created: List[ImportedSummary]
+
+
+def _summarize(assets):
+    return [
+        ImportedSummary(
+            id=a.id, name=a.name, category=a.category,
+            subcategory=a.subcategory, parent_id=a.parent_id,
+        )
+        for a in assets
+    ]
 
 
 @app.get("/health")
@@ -49,8 +68,11 @@ def health():
 
 @app.get("/api/models", response_model=List[ModelAsset])
 def list_models(
+    response: Response,
     keyword: Optional[str] = None,
     category: Optional[str] = None,
+    subcategory: Optional[str] = None,
+    source: Optional[str] = None,
     model_type: Optional[str] = None,
     stage: Optional[str] = None,
     specialty: Optional[str] = None,
@@ -63,6 +85,8 @@ def list_models(
     query = ModelQuery(
         keyword=keyword,
         category=category,
+        subcategory=subcategory,
+        source=source,
         model_type=model_type,
         stage=stage,
         specialty=specialty,
@@ -72,26 +96,52 @@ def list_models(
         offset=offset,
         limit=limit,
     )
+    response.headers["X-Total-Count"] = str(service.repo.count_models(query))
     return service.list_models(query)
 
 
 class CategoryCreate(BaseModel):
     name: str
-    parent: Optional[str] = None
 
 
 @app.get("/api/categories")
 def list_categories():
-    return service.list_category_tree()
+    return service.list_categories()
 
 
 @app.post("/api/categories", status_code=201)
 def add_category(payload: CategoryCreate):
     try:
-        service.add_category(payload.name, parent=payload.parent)
+        service.add_category(payload.name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"name": payload.name.strip(), "parent": payload.parent}
+    return {"name": payload.name.strip()}
+
+
+@app.delete("/api/categories/{name}", status_code=204)
+def delete_category(name: str):
+    if not service.delete_category(name):
+        raise HTTPException(status_code=404, detail="领域不存在")
+
+
+@app.get("/api/equipment-types")
+def list_equipment_types():
+    return service.list_equipment_types()
+
+
+@app.post("/api/equipment-types", status_code=201)
+def add_equipment_type(payload: CategoryCreate):
+    try:
+        service.add_equipment_type(payload.name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"name": payload.name.strip()}
+
+
+@app.delete("/api/equipment-types/{name}", status_code=204)
+def delete_equipment_type(name: str):
+    if not service.delete_equipment_type(name):
+        raise HTTPException(status_code=404, detail="设备类型不存在")
 
 
 @app.post("/api/models", response_model=ModelAsset, status_code=201)
@@ -152,7 +202,7 @@ async def import_gim(
             voltage_level=voltage_level,
             fallback_name=Path(file.filename or "model").stem,
         )
-        return ImportResult(created=created)
+        return ImportResult(created=_summarize(created))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
@@ -194,22 +244,35 @@ def pointcloud(model_id: str, count: int = Query(500, ge=1, le=100000), seed: Op
 
 @app.get("/api/models/{model_id}/stl/{stl_path:path}")
 def get_stl(model_id: str, stl_path: str):
-    """按需返回 STL 挂件三角面（三维预览加载用）。"""
+    """按需返回 STL 部件原始三角面（沿 parent 链向根查找存档文件）。"""
     from .gim.parsers.stl import stl_triangles
 
-    model = service.get_model(model_id)
-    if not model:
-        raise HTTPException(status_code=404, detail="模型不存在")
-    target = next(
-        (f for f in model.files if f.kind.value == "stl" and f.path.lower() == stl_path.lower()),
-        None,
-    )
-    if not target:
+    target_model = None
+    current_id = model_id
+    walked = 0
+    while current_id and walked < 10:
+        model = service.get_model(current_id)
+        if not model:
+            break
+        target = next(
+            (f for f in model.files if f.kind.value == "stl" and f.path.lower() == stl_path.lower()),
+            None,
+        )
+        if target:
+            target_model = model
+            break
+        current_id = model.parent_id
+        walked += 1
+
+    if not target_model:
         raise HTTPException(status_code=404, detail="STL 文件不存在")
-    file_path = Path(service.storage_dir) / model_id / target.path
+    file_path = Path(service.storage_dir) / target_model.id / target.path
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="STL 文件缺失")
-    triangles = [t for t in stl_triangles(file_path.read_bytes())]
+    triangles = [
+        [[round(x, 4) for x in v] for v in tri]
+        for tri in stl_triangles(file_path.read_bytes())
+    ]
     return {"path": target.path, "count": len(triangles), "triangles": triangles}
 
 

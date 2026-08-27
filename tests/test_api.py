@@ -28,7 +28,7 @@ def test_health(client):
 def test_categories_api(client):
     resp = client.get("/api/categories")
     assert resp.status_code == 200
-    assert [c["name"] for c in resp.json()] == ["变电", "输电", "电缆", "配电"]
+    assert resp.json() == ["变电", "输电", "电缆", "配电"]
 
     resp = client.post("/api/categories", json={"name": "直流"})
     assert resp.status_code == 201
@@ -36,6 +36,11 @@ def test_categories_api(client):
     # 重名拒绝
     resp = client.post("/api/categories", json={"name": "变电"})
     assert resp.status_code == 400
+
+    # 删除
+    resp = client.delete("/api/categories/直流")
+    assert resp.status_code == 204
+    assert "直流" not in client.get("/api/categories").json()
 
 
 def test_import_real_gim_keeps_filename(client):
@@ -47,9 +52,12 @@ def test_import_real_gim_keeps_filename(client):
     )
     assert resp.status_code == 200
     model = resp.json()["created"][0]
-    assert model["name"] == "2F4-SDJ变电站"
-    assert model["files"][0]["kind"] == "gim"
-    assert len(model["geometry"]["primitives"]) == 1132
+    assert model["name"] == "2F4-SDJ变电站"       # 摘要含名称
+    assert "geometry" not in model                # 摘要不含几何（瘦身）
+    # 几何经详情接口验证
+    detail = client.get(f"/api/models/{model['id']}").json()
+    assert detail["files"][0]["kind"] == "gim"
+    assert len(detail["geometry"]["primitives"]) == 1132
 
 
 def test_index_page(client):

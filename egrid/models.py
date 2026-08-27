@@ -99,6 +99,7 @@ class ModelFile(BaseModel):
     kind: GIMFileKind = GIMFileKind.OTHER
     size: int = 0
     checksum: str = ""
+    transform: List[float] = Field(default_factory=list)  # 引用链组合变换矩阵（16值，空=单位阵）
 
 
 class ModelVersion(BaseModel):
