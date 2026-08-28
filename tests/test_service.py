@@ -97,6 +97,25 @@ def test_import_real_gim_parses_attributes_and_geometry(service, tmp_path):
     assert len(loaded.geometry.primitives) == 1132
 
 
+def test_import_real_gim_unpacks_once(service, tmp_path, monkeypatch):
+    """真实 GIM 导入只解包一次（组装与 STL 落盘复用同一文件字典）。"""
+    import egrid.gim.assembler as assembler
+    pkg = tmp_path / "2F4-SDJ.gim"
+    pkg.write_bytes(GIM_FIXTURE.read_bytes())
+
+    calls = {"n": 0}
+    orig = assembler.unpack_store
+
+    def counting(data, store_offset):
+        calls["n"] += 1
+        return orig(data, store_offset)
+
+    monkeypatch.setattr(assembler, "unpack_store", counting)
+    created = service.import_gim_package(str(pkg))
+    assert len(created) == 1
+    assert calls["n"] == 1
+
+
 def test_render_and_pointcloud(service):
     asset = service.create_model(ModelAsset(
         name="绝缘子串",

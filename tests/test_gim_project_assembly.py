@@ -19,9 +19,19 @@ def project_assets():
     return assemble_gim(files, header)
 
 
+@pytest.fixture(scope="module")
+def string_assets():
+    """绝缘子串逐串建模开启的独立组装（不共享关闭模式的 project_assets）。"""
+    data = FIXTURE.read_bytes()
+    header = parse_header(data)
+    files = unpack_store(data, header.store_offset)
+    return assemble_gim(files, header, include_string_assets=True)
+
+
 def test_project_aggregation_count(project_assets):
-    # 根1 + F1(2) + F2(12) + F3(100) + 塔组(258) ≈ 373，聚合后不得爆炸
-    assert 300 <= len(project_assets) <= 450
+    # 根1 + F1(2) + F2(12) + F3(100) + 塔组(258) ≈ 373；
+    # 开启绝缘子串逐串建模后 + 串(4944) ≈ 5317，不得万级爆炸
+    assert 300 <= len(project_assets) <= 6000
 
 
 def test_project_root(project_assets):
@@ -57,15 +67,14 @@ def test_wire_not_imported(project_assets):
         assert all(p.name != "导线弧垂" for p in a.geometry.primitives)
 
 
-@pytest.mark.skip(reason="绝缘子串逐串建模待性能优化（ENABLE_STRING_ASSETS=False），当前聚合导入 ~2.5min")
-def test_string_assets_under_towers(project_assets):
+def test_string_assets_under_towers(string_assets):
     """绝缘子串随塔组建模：挂在塔资产下，subcategory=绝缘子串，带 STL 部件引用。"""
-    strings = [a for a in project_assets if a.subcategory == "绝缘子串"]
+    strings = [a for a in string_assets if a.subcategory == "绝缘子串"]
     assert len(strings) > 100
     with_stl = [a for a in strings if (a.extra.get("stl_parts") or [])]
     assert len(with_stl) > 50
     # 串挂在塔下（parent 是杆塔资产）
-    tower_ids = {a.id for a in project_assets if a.subcategory == "杆塔"}
+    tower_ids = {a.id for a in string_assets if a.subcategory == "杆塔"}
     assert all(a.parent_id in tower_ids for a in strings)
     # 带挂点名溯源
     assert any(a.origin.get("GPOINT") for a in strings)

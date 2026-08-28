@@ -257,19 +257,14 @@ class ModelService:
         voltage_level: str,
     ) -> List[ModelAsset]:
         """真实 GIM 专有容器：解析属性与几何，原包仅随根模型存档一份。"""
-        assets = parse_gim(content)
+        assets, store = parse_gim(content, with_files=True)
         created = []
-        # STL 挂件落盘到根模型目录（供三维端点按需加载）
+        # STL 挂件落盘到根模型目录（供三维端点按需加载）；提取失败不阻断导入
         stl_files = {}
-        from .gim.container import unpack_store
-        from .gim.header import parse_header as _gim_header
         try:
-            store = unpack_store(content, _gim_header(content).store_offset)
-            for rel, blob in store.items():
-                if rel.lower().endswith(".stl"):
-                    stl_files[rel] = blob
+            stl_files = {rel: blob for rel, blob in store.items() if rel.lower().endswith(".stl")}
         except Exception:
-            stl_files = {}  # STL 落盘失败不阻断导入
+            stl_files = {}
 
         for i, asset in enumerate(assets):
             is_root = not asset.parent_id

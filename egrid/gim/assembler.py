@@ -21,9 +21,9 @@ from .records import IDENTITY4, mat4_multiply, parse_kv_dict, parse_transform, t
 # cbm 中表示子级引用的键（工程树，第一版按引用展开）
 _CHILD_REF_PREFIXES = ("SUBSYSTEM", "SECTION", "STRAINSECTION", "GROUP", "SUBDEVICE", "STRING", "BASE")
 
-# 绝缘子串逐串建模开关：功能已实现但组装性能未优化（实测 >15min），
-# 默认关闭以保持工程导入 ~2.5min；性能优化完成后置 True 启用
-ENABLE_STRING_ASSETS = False
+# 绝缘子串逐串建模开关：组装缓存修复 + 解析去重后，逐串工程导入
+# 实测 ~11s（原 >15min），已达到 5min 门槛，默认开启
+ENABLE_STRING_ASSETS = True
 
 # 子分类（设备类型）映射：DEVICETYPE/GROUPTYPE → 设备类型名
 SUBCATEGORY_MAP = {
@@ -54,12 +54,12 @@ def _find_entry(files: dict) -> str:
     raise ValueError("GIM 包中未找到 CBM 入口文件")
 
 
-_INDEX_CACHE = {"id": None, "index": None}
+_INDEX_CACHE = {"files": None, "index": None}
 
 
 def _path_index(files: dict) -> dict:
     """构建 O(1) 路径索引（按 files 对象缓存）：{全路径lower: 原名} + {文件名lower: 原名}。"""
-    if _INDEX_CACHE["id"] is id(files) and _INDEX_CACHE["index"] is not None:
+    if _INDEX_CACHE["files"] is files and _INDEX_CACHE["index"] is not None:
         return _INDEX_CACHE["index"]
     exact = {}
     by_base = {}
@@ -68,7 +68,7 @@ def _path_index(files: dict) -> dict:
         exact[low] = name
         by_base.setdefault(low.split("/")[-1], name)
     index = {"exact": exact, "base": by_base}
-    _INDEX_CACHE["id"] = id(files)
+    _INDEX_CACHE["files"] = files
     _INDEX_CACHE["index"] = index
     return index
 
@@ -94,7 +94,7 @@ def _decode(data: bytes) -> str:
 
 def _collect_children(files: dict, cbm_path: str) -> list:
     """收集 cbm 的子级 cbm 引用（工程层级树）。"""
-    records = parse_kv_dict(_decode(files[cbm_path]))
+    records = _records_cached(files, cbm_path)
     base = Path(cbm_path).parent.as_posix()
     children = []
     for key, value in records.items():
@@ -119,13 +119,13 @@ def _iter_solid_models(records: dict):
         yield value, m
 
 
-_STL_STATS_CACHE = {"id": None, "cache": {}}
+_STL_STATS_CACHE = {"files": None, "cache": {}}
 
 
 def _stl_stats(files: dict, path: str) -> dict:
     """parse_stl 结果缓存（同一包内同文件只解析一次）。"""
-    if _STL_STATS_CACHE["id"] is not id(files):
-        _STL_STATS_CACHE["id"] = id(files)
+    if _STL_STATS_CACHE["files"] is not files:
+        _STL_STATS_CACHE["files"] = files
         _STL_STATS_CACHE["cache"] = {}
     cache = _STL_STATS_CACHE["cache"]
     if path not in cache:
@@ -134,8 +134,8 @@ def _stl_stats(files: dict, path: str) -> dict:
     return cache[path]
 
 
-_RECORDS_CACHE = {"id": None, "cache": {}}
-_ATTR_CACHE = {"id": None, "cache": {}}
+_RECORDS_CACHE = {"files": None, "cache": {}}
+_ATTR_CACHE = {"files": None, "cache": {}}
 
 
 def _copy_attribute(a: ModelAttribute) -> ModelAttribute:
@@ -145,8 +145,8 @@ def _copy_attribute(a: ModelAttribute) -> ModelAttribute:
 
 def _attributes_cached(files: dict, path: str) -> list:
     """fam 属性解析缓存（返回副本，调用方可安全追加）。"""
-    if _ATTR_CACHE["id"] is not id(files):
-        _ATTR_CACHE["id"] = id(files)
+    if _ATTR_CACHE["files"] is not files:
+        _ATTR_CACHE["files"] = files
         _ATTR_CACHE["cache"] = {}
     cache = _ATTR_CACHE["cache"]
     if path not in cache:
@@ -156,8 +156,8 @@ def _attributes_cached(files: dict, path: str) -> list:
 
 def _records_cached(files: dict, path: str) -> dict:
     """cbm/dev/phm 的 key=value 解析缓存（同一包内同文件只解析一次）。"""
-    if _RECORDS_CACHE["id"] is not id(files):
-        _RECORDS_CACHE["id"] = id(files)
+    if _RECORDS_CACHE["files"] is not files:
+        _RECORDS_CACHE["files"] = files
         _RECORDS_CACHE["cache"] = {}
     cache = _RECORDS_CACHE["cache"]
     if path not in cache:
@@ -192,10 +192,10 @@ def _collect_geometry(files: dict, dev_path: str, m_parent: list,
                 m2 = mat4_multiply(m, m2_local)
                 leaf_low = leaf.lower()
                 if leaf_low.endswith(".mod"):
+                    # mod 图元自带局部变换，叠加链平移（旋转保留在图元内部）
+                    # m2 为原样布局（平移在 12/13/14），转置一次供所有图元复用
+                    mt = transpose_matrix(m2)
                     for prim in parse_mod(_decode(files[leaf])):
-                        # mod 图元自带局部变换，叠加链平移（旋转保留在图元内部）
-                        # m2 为原样布局（平移在 12/13/14），转置后取平移
-                        mt = transpose_matrix(m2)
                         prim.position = [
                             mt[3] + prim.position[0],
                             mt[7] + prim.position[1],
@@ -289,7 +289,7 @@ def _walk_cbm(files: dict, cbm_path: str, header: GimHeader, parent_id, seen: se
     if cbm_path in seen:
         return
     seen.add(cbm_path)
-    records = parse_kv_dict(_decode(files[cbm_path]))
+    records = _records_cached(files, cbm_path)
     entity = records.get("ENTITYNAME", "")
     if entity.upper() in ("F1SYSTEM", "F2SYSTEM", "F3SYSTEM", "F4SYSTEM"):
         # 工程层级节点：建节点资产并递归
@@ -299,7 +299,7 @@ def _walk_cbm(files: dict, cbm_path: str, header: GimHeader, parent_id, seen: se
         if fam_ref:
             fam_path = _resolve(files, base, fam_ref)
             if fam_path in files:
-                attributes = parse_attributes(_decode(files[fam_path]))
+                attributes = _attributes_cached(files, fam_path)
         fields = extract_asset_fields(attributes)
         assets.append(ModelAsset(
             name=header.name or Path(cbm_path).stem,
@@ -323,7 +323,7 @@ def _is_project_entry(files: dict, entry: str) -> bool:
     """工程模式判定：入口名为 project.cbm，或其子级含 F1System。"""
     if Path(entry).name.lower() == "project.cbm":
         return True
-    records = parse_kv_dict(_decode(files[entry]))
+    records = _records_cached(files, entry)
     if records.get("ENTITYNAME", "").upper() in ("F1SYSTEM", "F2SYSTEM", "F3SYSTEM"):
         return True
     return any(
@@ -353,7 +353,8 @@ def _node_name(records: dict, fallback: str) -> str:
     return fallback
 
 
-def _assemble_project(files: dict, entry: str, header: GimHeader) -> list:
+def _assemble_project(files: dict, entry: str, header: GimHeader,
+                      include_string_assets: bool) -> list:
     """工程聚合导入：根 + F1/F2/F3 层级 + 塔组逐基 + 导线/交叉跨越聚合。"""
     assets: list = []
     root = ModelAsset(
@@ -374,13 +375,14 @@ def _assemble_project(files: dict, entry: str, header: GimHeader) -> list:
     # π 接/多线工程：project.cbm 可能漏挂部分 F1（实测厂商打包缺陷），扫描孤儿 F1 补挂
     for name, content in files.items():
         if name.lower().endswith(".cbm"):
-            ent = parse_kv_dict(_decode(content)).get("ENTITYNAME", "").upper()
+            ent = _records_cached(files, name).get("ENTITYNAME", "").upper()
             if ent == "F1SYSTEM" and name not in chains:
                 chains.append(name)
 
     for i, f1 in enumerate(chains, 1):
-        f1_records = parse_kv_dict(_decode(files[f1]))
-        sub = _walk_level(files, f1, header, root.id, assets, f"F1-{i}", seen=seen)
+        f1_records = _records_cached(files, f1)
+        sub = _walk_level(files, f1, header, root.id, assets, f"F1-{i}", seen=seen,
+                          include_string_assets=include_string_assets)
         if not root_attrs_done:
             # 工程级属性：从首个 F1 的 fam 上提
             base = Path(f1).parent.as_posix()
@@ -388,7 +390,7 @@ def _assemble_project(files: dict, entry: str, header: GimHeader) -> list:
             if fam_ref:
                 fam_path = _resolve(files, base, fam_ref)
                 if fam_path in files:
-                    root.attributes = parse_attributes(_decode(files[fam_path]))
+                    root.attributes = _attributes_cached(files, fam_path)
             root.voltage_level = next(
                 (a.value for a in root.attributes if a.key in ("VOLTAGE", "VOLTAGECLASS") and a.value), ""
             )
@@ -397,14 +399,15 @@ def _assemble_project(files: dict, entry: str, header: GimHeader) -> list:
 
 
 def _walk_level(files: dict, cbm_path: str, header: GimHeader,
-                parent_id, assets: list, path_label: str, seen=None) -> dict:
+                parent_id, assets: list, path_label: str, seen=None,
+                include_string_assets: bool = False) -> dict:
     """递归 F1/F2/F3 层级；返回统计（塔数/导线档数等，供父级聚合）。"""
     if seen is None:
         seen = set()
     if cbm_path in seen:
         return {}
     seen.add(cbm_path)
-    records = parse_kv_dict(_decode(files[cbm_path]))
+    records = _records_cached(files, cbm_path)
     entity = records.get("ENTITYNAME", "").upper()
     base = Path(cbm_path).parent.as_posix()
 
@@ -413,7 +416,7 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
     if fam_ref:
         fam_path = _resolve(files, base, fam_ref)
         if fam_path in files:
-            attributes = parse_attributes(_decode(files[fam_path]))
+            attributes = _attributes_cached(files, fam_path)
     fields = extract_asset_fields(attributes)
 
     label = {"F1SYSTEM": "全线", "F2SYSTEM": "分段", "F3SYSTEM": "耐张段"}.get(entity, entity)
@@ -435,15 +438,17 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
     stats = {"towers": 0, "wires": 0, "cross": 0, "tower_assets": 0}
 
     for child in _collect_children(files, cbm_path):
-        child_records = parse_kv_dict(_decode(files[child]))
+        child_records = _records_cached(files, child)
         child_entity = child_records.get("ENTITYNAME", "").upper()
         if child_entity in ("F1SYSTEM", "F2SYSTEM", "F3SYSTEM"):
             sub = _walk_level(files, child, header, node.id, assets,
-                              f"{path_label}-{len(assets)}", seen)
+                              f"{path_label}-{len(assets)}", seen,
+                              include_string_assets=include_string_assets)
             for k in stats:
                 stats[k] += sub.get(k, 0)
         elif child_entity == "F4SYSTEM":
-            group_stats = _handle_group(files, child, header, node, assets)
+            group_stats = _handle_group(files, child, header, node, assets,
+                                        include_string_assets=include_string_assets)
             stats["towers"] += group_stats.get("towers", 0)
             stats["cross"] += group_stats.get("cross", 0)
             stats["tower_assets"] += group_stats.get("tower_assets", 0)
@@ -460,9 +465,10 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
 
 
 def _handle_group(files: dict, group_path: str, header: GimHeader,
-                  f3_node: ModelAsset, assets: list) -> dict:
+                  f3_node: ModelAsset, assets: list,
+                  include_string_assets: bool = False) -> dict:
     """F4 设备组：塔组逐基建模（含绝缘子串挂件）；导线/交叉跨越聚合统计。"""
-    records = parse_kv_dict(_decode(files[group_path]))
+    records = _records_cached(files, group_path)
     base = Path(group_path).parent.as_posix()
     group_type = records.get("GROUPTYPE", "").upper()
     stats = {"towers": 0, "wires": 0, "cross": 0, "tower_assets": 0}
@@ -480,7 +486,7 @@ def _handle_group(files: dict, group_path: str, header: GimHeader,
                 tower.voltage_level = tower.voltage_level or f3_node.voltage_level
                 assets.append(tower)
                 stats["tower_assets"] = 1
-        if tower and ENABLE_STRING_ASSETS:
+        if tower and include_string_assets:
             # 绝缘子串逐串建模（STRINGn.STRING cbm，挂点姿态在矩阵、挂点名 GPOINT）
             # 注意：当前组装耗时未优化（>15min），默认关闭，恢复 2.5min 聚合导入
             idx = 0
@@ -505,13 +511,13 @@ def _handle_group(files: dict, group_path: str, header: GimHeader,
 
 def _first_wire_cbm(files: dict, group_path: str):
     base = Path(group_path).parent.as_posix()
-    records = parse_kv_dict(_decode(files[group_path]))
+    records = _records_cached(files, group_path)
     for key, value in records.items():
         ku = key.upper()
         if ku.startswith("SUBDEVICE") and not ku.endswith(".NUM") and value.lower().endswith(".cbm"):
             child = _resolve(files, base, value)
             if child in files:
-                child_records = parse_kv_dict(_decode(files[child]))
+                child_records = _records_cached(files, child)
                 if child_records.get("ENTITYNAME", "").upper() == "WIRE":
                     return child
     return None
@@ -519,7 +525,7 @@ def _first_wire_cbm(files: dict, group_path: str):
 
 def _wire_sag_segments(files: dict, wire_cbm: str):
     """从 WIRE cbm 提取 BLHA/KVALUE 生成弧垂折线。"""
-    records = parse_kv_dict(_decode(files[wire_cbm]))
+    records = _records_cached(files, wire_cbm)
 
     def blha_of(point: str):
         raw = records.get(f"POINT{point}.BLHA", "")
@@ -563,18 +569,30 @@ def _build_tower_asset(files: dict, cbm_path: str, header: GimHeader, blha: str,
     return asset
 
 
-def assemble_gim(files: dict, header: GimHeader) -> list:
-    """GIM 文件集 → ModelAsset 列表（工程聚合 / 单设备）。"""
+def assemble_gim(files: dict, header: GimHeader,
+                 *, include_string_assets: bool = ENABLE_STRING_ASSETS) -> list:
+    """GIM 文件集 → ModelAsset 列表（工程聚合 / 单设备）。
+
+    include_string_assets：工程导入是否逐串建模绝缘子串（默认跟随
+    ENABLE_STRING_ASSETS 开关；性能优化完成后置 True 全局启用）。
+    """
     entry = _find_entry(files)
     if _is_project_entry(files, entry):
-        return _assemble_project(files, entry, header)
+        return _assemble_project(files, entry, header, include_string_assets)
     assets = []
     _walk_cbm(files, entry, header, None, set(), assets)
     return assets
 
 
-def parse_gim(data: bytes) -> list:
-    """真实 GIM 容器 → ModelAsset 列表。"""
+def parse_gim(data: bytes, *, with_files: bool = False):
+    """真实 GIM 容器 → ModelAsset 列表。
+
+    with_files=True 时额外返回解包文件字典（{相对路径: bytes}），
+    供调用方复用避免二次解包（如 STL 落盘）。
+    """
     header = parse_header(data)
     files = unpack_store(data, header.store_offset)
-    return assemble_gim(files, header)
+    assets = assemble_gim(files, header)
+    if with_files:
+        return assets, files
+    return assets

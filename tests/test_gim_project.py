@@ -49,7 +49,8 @@ def test_import_project_end_to_end(tmp_path):
         storage_dir=str(tmp_path / "files"),
     )
     created = svc.import_gim_package(str(FIXTURE), voltage_level="220kV")
-    assert 300 <= len(created) <= 450
+    # 开启绝缘子串逐串建模后：基础 373 + 串 4944 ≈ 5317，不得万级爆炸
+    assert 300 <= len(created) <= 6000
 
     root = next(a for a in created if a.parent_id is None)
     assert root.source == "gim"
