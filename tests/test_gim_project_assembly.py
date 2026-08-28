@@ -40,6 +40,20 @@ def test_project_root(project_assets):
     assert root.level == 1
     # 工程级属性（来自 F1 fam，实测 key 为 DESIGNVOLTAGE 等）
     assert any(a.key in ("VOLTAGE", "VOLTAGECLASS", "DESIGNVOLTAGE") for a in root.attributes)
+    # DESIGNVOLTAGE → 归一化主字段
+    assert root.voltage_level == "220kV"
+
+
+def test_project_voltage_inheritance(project_assets):
+    """工程电压继承：root 220kV（DESIGNVOLTAGE），杆塔/绝缘子串电压非空且不被覆盖。"""
+    root = next(a for a in project_assets if a.parent_id is None)
+    towers = [a for a in project_assets if a.subcategory == "杆塔"]
+    strings = [a for a in project_assets if a.subcategory == "绝缘子串"]
+    assert towers and all(t.voltage_level for t in towers)
+    # 塔自身 fam 有 220kV，保持自身值
+    assert towers[0].voltage_level == "220kV"
+    # 串继承层级/塔电压
+    assert all(s.voltage_level == root.voltage_level for s in strings)
 
 
 def test_hierarchy_assets(project_assets):

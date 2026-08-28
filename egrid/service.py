@@ -75,6 +75,10 @@ class ModelService:
         data = existing.model_dump(mode="json")
         data.update(patch)
         data["id"] = model_id
+        # 基本信息人工修正：trim 分类字段，电压由 ModelAsset validator 归一化
+        for field in ("category", "subcategory"):
+            if isinstance(data.get(field), str):
+                data[field] = data[field].strip()
         updated = ModelAsset.model_validate(data)
         return self.repo.update_model(updated)
 
@@ -129,6 +133,56 @@ class ModelService:
 
     def delete_equipment_type(self, name: str) -> bool:
         return self.repo.delete_equipment_type((name or "").strip())
+
+    def list_voltage_levels(self) -> List[str]:
+        """已存在模型的电压等级去重列表（数值排序）。"""
+        return self.repo.list_voltage_levels()
+
+    def filter_options(self) -> Dict[str, List[str]]:
+        """左侧筛选器选项：大类 / 设备类型 / 电压等级。"""
+        return {
+            "categories": self.list_categories(),
+            "equipment_types": self.list_equipment_types(),
+            "voltage_levels": self.list_voltage_levels(),
+        }
+
+    def sample_pointcloud(self, model_id: str, count: int, seed: Optional[int] = None):
+        """模型点云采样：参数化图元 + STL（沿父链查找根模型 STL 文件）。"""
+        from .gim.parsers.stl import stl_triangles
+        from .render import sample_model_pointcloud
+
+        model = self.repo.get_model(model_id)
+        if not model:
+            raise KeyError(f"模型不存在: {model_id}")
+        parts = model.extra.get("stl_parts") or []
+        stl_sources = []
+        if parts:
+            root = model
+            current = model
+            walked = 0
+            while current.parent_id and walked < 10:
+                current = self.repo.get_model(current.parent_id)
+                if not current:
+                    break
+                root = current
+                walked += 1
+            stl_by_path = {
+                f.path.lower(): f for f in root.files if f.kind.value == "stl"
+            }
+            for part in parts:
+                rel = (part.get("path") or "").replace("\\", "/")
+                f = stl_by_path.get(rel.lower())
+                if not f:
+                    continue
+                file_path = self.storage_dir / root.id / f.path
+                if not file_path.exists():
+                    continue
+                stl_sources.append({
+                    "path": rel,
+                    "transform": part.get("transform") or [],
+                    "triangles": list(stl_triangles(file_path.read_bytes())),
+                })
+        return sample_model_pointcloud(model, count=count, seed=seed, stl_sources=stl_sources)
 
     # ---------- 文件存储 ----------
     def _file_path(self, model_id: str, relative_path: str) -> Path:
@@ -257,7 +311,7 @@ class ModelService:
         voltage_level: str,
     ) -> List[ModelAsset]:
         """真实 GIM 专有容器：解析属性与几何，原包仅随根模型存档一份。"""
-        assets, store = parse_gim(content, with_files=True)
+        assets, store = parse_gim(content, with_files=True, fallback_voltage=voltage_level)
         created = []
         # STL 挂件落盘到根模型目录（供三维端点按需加载）；提取失败不阻断导入
         stl_files = {}

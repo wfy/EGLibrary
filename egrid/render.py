@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import math
 import random
-from typing import List, Sequence, Tuple
+from pathlib import Path
+from typing import List, Optional, Sequence, Tuple
 
 from .models import (
     Geometry,
@@ -169,28 +170,102 @@ def _sample_primitive_points(prim: Primitive, count: int) -> List[Tuple[float, f
     return _apply_transform(pts, prim)
 
 
+# 点云质量档位 → 目标点数（低/中/高；默认中）
+POINTCLOUD_QUALITY_COUNTS = {
+    "low": 500,
+    "medium": 2000,
+    "high": 5000,
+}
+
+
+def _sample_stl_points(triangles: List[list], transform: list, count: int, rng) -> List[list]:
+    """STL 三角面面积加权随机采样；transform 为 M·v 列向量矩阵（平移在 3/7/11）。"""
+    if not triangles or count <= 0:
+        return []
+    areas = []
+    total = 0.0
+    for (a, b, c) in triangles:
+        ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+        ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
+        cross = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ]
+        area = 0.5 * math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2)
+        areas.append(area)
+        total += area
+
+    def pick_index():
+        if total <= 0:
+            return rng.randrange(len(triangles))
+        r = rng.random() * total
+        lo, hi = 0, len(areas)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if areas[mid] < r:
+                lo = mid + 1
+            else:
+                hi = mid
+        return min(lo, len(triangles) - 1)
+
+    pts = []
+    for _ in range(count):
+        a, b, c = triangles[pick_index()]
+        u, v = rng.random(), rng.random()
+        if u + v > 1.0:
+            u, v = 1.0 - u, 1.0 - v
+        pts.append([
+            a[0] + u * (b[0] - a[0]) + v * (c[0] - a[0]),
+            a[1] + u * (b[1] - a[1]) + v * (c[1] - a[1]),
+            a[2] + u * (b[2] - a[2]) + v * (c[2] - a[2]),
+        ])
+    if transform and len(transform) >= 12:
+        m = transform
+        pts = [
+            [m[0] * x + m[1] * y + m[2] * z + m[3],
+             m[4] * x + m[5] * y + m[6] * z + m[7],
+             m[8] * x + m[9] * y + m[10] * z + m[11]]
+            for x, y, z in pts
+        ]
+    return pts
+
+
 def sample_model_pointcloud(
     model: ModelAsset,
     count: int = 1000,
     seed: Optional[int] = None,
+    stl_sources: Optional[List[dict]] = None,
 ) -> PointCloudSample:
-    """将模型基本图元表面采样为带标签点云。"""
-    if seed is not None:
-        random.seed(seed)
+    """将模型表面采样为带标签点云。
+
+    数据源：参数化基本图元 + STL 三角面（stl_sources 由服务层沿父链加载）。
+    stl_sources 每项：{"path": 包内路径, "transform": 16 值矩阵(可空), "triangles": [...]}。
+    标签：参数化图元用图元名称，STL 用文件名去扩展名。
+    """
+    rng = random.Random(seed) if seed is not None else random
     primitives = model.geometry.primitives
-    if not primitives:
+    stl_sources = stl_sources or []
+    if not primitives and not stl_sources:
         return PointCloudSample(model_id=model.id, points=[], labels=[], count=0)
 
-    # 按图元数量均分采样点数
-    per = max(1, count // len(primitives))
+    n_sources = len(primitives) + len(stl_sources)
+    per = max(1, count // n_sources)
+    # 余数补足：前 extra 个源多采 1 点，尽量精确返回目标点数
+    extra = max(0, count - per * n_sources)
     points: List[List[float]] = []
     labels: List[str] = []
-    for prim in primitives:
-        pts = _sample_primitive_points(prim, per)
-        for p in pts:
-            points.append([round(v, 3) for v in p])
-            labels.append(prim.name or prim.type.value)
-    # 截断到目标数量
+    for i, prim in enumerate(primitives):
+        pts = _sample_primitive_points(prim, per + (1 if i < extra else 0))
+        points.extend([[round(v, 3) for v in p] for p in pts])
+        labels.extend([prim.name or prim.type.value] * len(pts))
+    for i, src in enumerate(stl_sources):
+        n = per + (1 if len(primitives) + i < extra else 0)
+        pts = _sample_stl_points(src.get("triangles") or [], src.get("transform") or [], n, rng)
+        label = Path(src.get("path", "")).stem or "stl"
+        points.extend([[round(v, 3) for v in p] for p in pts])
+        labels.extend([label] * len(pts))
+    # 截断到目标数量（与图元数整除时精确返回 count）
     points = points[:count]
     labels = labels[:count]
     return PointCloudSample(model_id=model.id, points=points, labels=labels, count=len(points))

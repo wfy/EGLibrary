@@ -70,8 +70,8 @@ def health():
 def list_models(
     response: Response,
     keyword: Optional[str] = None,
-    category: Optional[str] = None,
-    subcategory: Optional[str] = None,
+    category: Optional[List[str]] = Query(None),
+    subcategory: Optional[List[str]] = Query(None),
     source: Optional[str] = None,
     model_type: Optional[str] = None,
     stage: Optional[str] = None,
@@ -102,6 +102,12 @@ def list_models(
 
 class CategoryCreate(BaseModel):
     name: str
+
+
+@app.get("/api/filter-options")
+def filter_options():
+    """左侧筛选器选项：大类 / 设备类型 / 电压等级（电压数值排序）。"""
+    return service.filter_options()
 
 
 @app.get("/api/categories")
@@ -235,11 +241,35 @@ def preview_svg(
 
 
 @app.get("/api/models/{model_id}/pointcloud", response_model=PointCloudSample)
-def pointcloud(model_id: str, count: int = Query(500, ge=1, le=100000), seed: Optional[int] = None):
+def pointcloud(
+    model_id: str,
+    quality: Optional[str] = Query(None, pattern="^(low|medium|high|custom)$"),
+    count: Optional[int] = Query(None, ge=1, le=100000),
+    seed: Optional[int] = None,
+):
+    """点云采样：quality=low/medium/high 固定档位；custom 需携带 count。
+
+    兼容旧客户端仅传 count=N（视为 custom）。
+    """
     model = service.get_model(model_id)
     if not model:
         raise HTTPException(status_code=404, detail="模型不存在")
-    return sample_model_pointcloud(model, count=count, seed=seed)
+    if quality is None and count is None:
+        quality = "medium"
+    elif quality is None:
+        quality = "custom"  # 旧客户端仅传 count
+    if quality == "custom":
+        if count is None:
+            raise HTTPException(status_code=422, detail="自定义采样必须提供 count 参数")
+    else:
+        if count is not None:
+            raise HTTPException(status_code=422, detail="low/medium/high 档位不能携带 count 参数")
+        from .render import POINTCLOUD_QUALITY_COUNTS
+        count = POINTCLOUD_QUALITY_COUNTS[quality]
+    try:
+        return service.sample_pointcloud(model_id, count=count, seed=seed)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @app.get("/api/models/{model_id}/stl/{stl_path:path}")

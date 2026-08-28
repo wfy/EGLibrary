@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 from pathlib import Path
@@ -16,6 +17,7 @@ from .models import (
     ModelQuery,
     ModelVersion,
     new_guid,
+    normalize_voltage_level,
     utcnow,
 )
 
@@ -46,6 +48,20 @@ class ModelRepository:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys = ON")
         self._init_schema()
+        self._normalize_legacy_voltage_levels()
+
+    def _normalize_legacy_voltage_levels(self) -> None:
+        """历史数据迁移：AC/DC 前缀电压归一化（幂等，空库无负担）。"""
+        with self._lock, self._conn:
+            rows = self._conn.execute(
+                "SELECT id, voltage_level FROM models WHERE voltage_level != ''"
+            ).fetchall()
+            for r in rows:
+                norm = normalize_voltage_level(r["voltage_level"])
+                if norm != r["voltage_level"]:
+                    self._conn.execute(
+                        "UPDATE models SET voltage_level = ? WHERE id = ?", (norm, r["id"])
+                    )
 
     def _init_schema(self) -> None:
         with self._conn:
@@ -280,11 +296,11 @@ class ModelRepository:
             like = f"%{q.keyword}%"
             params.extend([like, like, like])
         if q.category:
-            sql += " AND category = ?"
-            params.append(q.category)
+            sql += f" AND category IN ({','.join('?' * len(q.category))})"
+            params.extend(q.category)
         if getattr(q, "subcategory", None):
-            sql += " AND subcategory = ?"
-            params.append(q.subcategory)
+            sql += f" AND subcategory IN ({','.join('?' * len(q.subcategory))})"
+            params.extend(q.subcategory)
         if getattr(q, "source", None):
             sql += " AND source = ?"
             params.append(q.source)
@@ -312,6 +328,15 @@ class ModelRepository:
                 sql += " AND tags LIKE ?"
                 params.append(f"%{tag}%")
         return sql, params
+
+    def list_voltage_levels(self) -> List[str]:
+        """已存在模型的电压等级去重列表（按数值排序，如 10kV/110kV/220kV）。"""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT DISTINCT voltage_level FROM models WHERE voltage_level != ''"
+            ).fetchall()
+        values = [r["voltage_level"] for r in rows]
+        return sorted(values, key=lambda v: (int(re.search(r"\d+", v).group()) if re.search(r"\d+", v) else 0, v))
 
     def count_models(self, query: Optional[ModelQuery] = None) -> int:
         """同过滤条件下的总数（分页用）。"""

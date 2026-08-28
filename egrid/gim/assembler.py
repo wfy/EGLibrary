@@ -13,10 +13,13 @@ from pathlib import Path
 
 from ..models import Geometry, ModelAsset, ModelAttribute, Primitive, PrimitiveType
 from .container import unpack_store
-from .header import GimHeader, parse_header
+from .header import GimHeader, category_for_gim_kind, parse_header
 from .parsers.fam import extract_asset_fields, parse_attributes
 from .parsers.mod import parse_mod, sagcurve_wire
 from .records import IDENTITY4, mat4_multiply, parse_kv_dict, parse_transform, transpose_matrix
+
+# 工程电压继承链兜底：自身 → 层级 → 工程根 → 导入参数 → 110kV
+DEFAULT_VOLTAGE = "110kV"
 
 # cbm 中表示子级引用的键（工程树，第一版按引用展开）
 _CHILD_REF_PREFIXES = ("SUBSYSTEM", "SECTION", "STRAINSECTION", "GROUP", "SUBDEVICE", "STRING", "BASE")
@@ -294,12 +297,15 @@ def _build_device_asset(files: dict, cbm_path: str, header: GimHeader) -> ModelA
         name=name,
         code=header.name or symbol_name,
         model_type="device",
+        category=category_for_gim_kind(header.kind),
         voltage_level=fields.get("voltage_level", ""),
         description="；".join(description_parts) or "GIM 导入",
         attributes=attributes,
         geometry=Geometry(primitives=primitives),
         level=4,
         subcategory=subcategory,
+        source="gim",
+        origin=_origin_of(header),
         extra=extra,
     )
 
@@ -373,14 +379,15 @@ def _node_name(records: dict, fallback: str) -> str:
 
 
 def _assemble_project(files: dict, entry: str, header: GimHeader,
-                      include_string_assets: bool) -> list:
+                      include_string_assets: bool,
+                      fallback_voltage: str = "") -> list:
     """工程聚合导入：根 + F1/F2/F3 层级 + 塔组逐基 + 导线/交叉跨越聚合。"""
     assets: list = []
     root = ModelAsset(
         name=header.name or "GIM 工程",
         code=header.name,
         model_type="line" if header.kind in ("line", "unknown") else "device",
-        category={"substation": "变电", "line": "输电", "cable": "电缆"}.get(header.kind, "输电"),
+        category=category_for_gim_kind(header.kind),
         source="gim",
         origin=_origin_of(header),
         description="GIM 工程根（聚合导入）",
@@ -400,8 +407,6 @@ def _assemble_project(files: dict, entry: str, header: GimHeader,
 
     for i, f1 in enumerate(chains, 1):
         f1_records = _records_cached(files, f1)
-        sub = _walk_level(files, f1, header, root.id, assets, f"F1-{i}", seen=seen,
-                          include_string_assets=include_string_assets)
         if not root_attrs_done:
             # 工程级属性：从首个 F1 的 fam 上提
             base = Path(f1).parent.as_posix()
@@ -410,17 +415,23 @@ def _assemble_project(files: dict, entry: str, header: GimHeader,
                 fam_path = _resolve(files, base, fam_ref)
                 if fam_path in files:
                     root.attributes = _attributes_cached(files, fam_path)
-            root.voltage_level = next(
-                (a.value for a in root.attributes if a.key in ("VOLTAGE", "VOLTAGECLASS") and a.value), ""
-            )
+            root.voltage_level = extract_asset_fields(root.attributes).get("voltage_level", "")
             root_attrs_done = True
+        inherited = root.voltage_level or fallback_voltage or DEFAULT_VOLTAGE
+        sub = _walk_level(files, f1, header, root.id, assets, f"F1-{i}", seen=seen,
+                          include_string_assets=include_string_assets,
+                          inherited_voltage=inherited)
     return assets
 
 
 def _walk_level(files: dict, cbm_path: str, header: GimHeader,
                 parent_id, assets: list, path_label: str, seen=None,
-                include_string_assets: bool = False) -> dict:
-    """递归 F1/F2/F3 层级；返回统计（塔数/导线档数等，供父级聚合）。"""
+                include_string_assets: bool = False,
+                inherited_voltage: str = "") -> dict:
+    """递归 F1/F2/F3 层级；返回统计（塔数/导线档数等，供父级聚合）。
+
+    inherited_voltage：父级电压（工程根 → F1 → F2 → F3），子级自身无电压时继承。
+    """
     if seen is None:
         seen = set()
     if cbm_path in seen:
@@ -437,14 +448,15 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
         if fam_path in files:
             attributes = _attributes_cached(files, fam_path)
     fields = extract_asset_fields(attributes)
+    node_voltage = fields.get("voltage_level") or inherited_voltage
 
     label = {"F1SYSTEM": "全线", "F2SYSTEM": "分段", "F3SYSTEM": "耐张段"}.get(entity, entity)
     node = ModelAsset(
         name=f"{path_label} {_node_name(records, label)}",
         code=header.name,
         model_type="system",
-        category={"substation": "变电", "line": "输电", "cable": "电缆"}.get(header.kind, "输电"),
-        voltage_level=fields.get("voltage_level", ""),
+        category=category_for_gim_kind(header.kind),
+        voltage_level=node_voltage,
         description=f"GIM 工程层级 {entity}",
         attributes=attributes,
         parent_id=parent_id,
@@ -455,6 +467,7 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
     assets.append(node)
 
     stats = {"towers": 0, "wires": 0, "cross": 0, "tower_assets": 0}
+    child_inherited = node_voltage or inherited_voltage
 
     for child in _collect_children(files, cbm_path):
         child_records = _records_cached(files, child)
@@ -462,12 +475,14 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
         if child_entity in ("F1SYSTEM", "F2SYSTEM", "F3SYSTEM"):
             sub = _walk_level(files, child, header, node.id, assets,
                               f"{path_label}-{len(assets)}", seen,
-                              include_string_assets=include_string_assets)
+                              include_string_assets=include_string_assets,
+                              inherited_voltage=child_inherited)
             for k in stats:
                 stats[k] += sub.get(k, 0)
         elif child_entity == "F4SYSTEM":
             group_stats = _handle_group(files, child, header, node, assets,
-                                        include_string_assets=include_string_assets)
+                                        include_string_assets=include_string_assets,
+                                        inherited_voltage=child_inherited)
             stats["towers"] += group_stats.get("towers", 0)
             stats["cross"] += group_stats.get("cross", 0)
             stats["tower_assets"] += group_stats.get("tower_assets", 0)
@@ -485,7 +500,8 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
 
 def _handle_group(files: dict, group_path: str, header: GimHeader,
                   f3_node: ModelAsset, assets: list,
-                  include_string_assets: bool = False) -> dict:
+                  include_string_assets: bool = False,
+                  inherited_voltage: str = "") -> dict:
     """F4 设备组：塔组逐基建模（含绝缘子串挂件）；导线/交叉跨越聚合统计。"""
     records = _records_cached(files, group_path)
     base = Path(group_path).parent.as_posix()
@@ -500,14 +516,14 @@ def _handle_group(files: dict, group_path: str, header: GimHeader,
         if tower_ref:
             tower_cbm = _resolve(files, base, tower_ref)
             if tower_cbm in files:
-                tower = _build_tower_asset(files, tower_cbm, header, blha, len(assets))
+                tower = _build_tower_asset(files, tower_cbm, header, blha, len(assets),
+                                           voltage_fallback=inherited_voltage)
                 tower.parent_id = f3_node.id
-                tower.voltage_level = tower.voltage_level or f3_node.voltage_level
+                tower.voltage_level = tower.voltage_level or f3_node.voltage_level or inherited_voltage
                 assets.append(tower)
                 stats["tower_assets"] = 1
         if tower and include_string_assets:
             # 绝缘子串逐串建模（STRINGn.STRING cbm，挂点姿态在矩阵、挂点名 GPOINT）
-            # 注意：当前组装耗时未优化（>15min），默认关闭，恢复 2.5min 聚合导入
             idx = 0
             for key, value in records.items():
                 ku = key.upper()
@@ -518,7 +534,8 @@ def _handle_group(files: dict, group_path: str, header: GimHeader,
                         continue
                     gpoint = records.get(f"{ku.split('.')[0]}.GPOINT", "")
                     s_asset = _build_tower_asset(files, string_cbm, header, "", len(assets),
-                                                 subcategory="绝缘子串")
+                                                 subcategory="绝缘子串",
+                                                 voltage_fallback=tower.voltage_level or inherited_voltage)
                     s_asset.name = f"{tower.name}-串{idx}"
                     s_asset.parent_id = tower.id
                     s_asset.origin = dict(s_asset.origin or {}, GPOINT=gpoint)
@@ -567,14 +584,16 @@ def _wire_sag_segments(files: dict, wire_cbm: str):
 
 
 def _build_tower_asset(files: dict, cbm_path: str, header: GimHeader, blha: str, idx: int,
-                       subcategory: str = "") -> ModelAsset:
+                       subcategory: str = "", voltage_fallback: str = "") -> ModelAsset:
     """塔组子设备（TOWER_DEVICE）→ 模型资产（杆塔或绝缘子串等挂件）。"""
     asset = _build_device_asset(files, cbm_path, header)
     # subcategory 优先由 dev DEVICETYPE 映射（STRING/INSULATOR → 绝缘子串）；
     # 显式指定时强制覆盖（杆塔场景）
     asset.subcategory = subcategory or asset.subcategory or "杆塔"
     asset.source = "gim"
-    asset.category = {"substation": "变电", "line": "输电", "cable": "电缆"}.get(header.kind, "输电")
+    asset.category = category_for_gim_kind(header.kind)
+    if not asset.voltage_level and voltage_fallback:
+        asset.voltage_level = voltage_fallback
     asset.origin = _origin_of(header, BLHA=blha)
     asset.level = 4
     # 命名：塔型/型号 + 顺序号
@@ -589,29 +608,33 @@ def _build_tower_asset(files: dict, cbm_path: str, header: GimHeader, blha: str,
 
 
 def assemble_gim(files: dict, header: GimHeader,
-                 *, include_string_assets: bool = ENABLE_STRING_ASSETS) -> list:
+                 *, include_string_assets: bool = ENABLE_STRING_ASSETS,
+                 fallback_voltage: str = "") -> list:
     """GIM 文件集 → ModelAsset 列表（工程聚合 / 单设备）。
 
     include_string_assets：工程导入是否逐串建模绝缘子串（默认跟随
     ENABLE_STRING_ASSETS 开关；性能优化完成后置 True 全局启用）。
+    fallback_voltage：工程电压继承链兜底（导入接口参数），缺省时用 110kV。
     """
     entry = _find_entry(files)
     if _is_project_entry(files, entry):
-        return _assemble_project(files, entry, header, include_string_assets)
+        return _assemble_project(files, entry, header, include_string_assets,
+                                 fallback_voltage=fallback_voltage)
     assets = []
     _walk_cbm(files, entry, header, None, set(), assets)
     return assets
 
 
-def parse_gim(data: bytes, *, with_files: bool = False):
+def parse_gim(data: bytes, *, with_files: bool = False, fallback_voltage: str = ""):
     """真实 GIM 容器 → ModelAsset 列表。
 
     with_files=True 时额外返回解包文件字典（{相对路径: bytes}），
     供调用方复用避免二次解包（如 STL 落盘）。
+    fallback_voltage：工程电压继承链兜底（导入接口参数），缺省时用 110kV。
     """
     header = parse_header(data)
     files = unpack_store(data, header.store_offset)
-    assets = assemble_gim(files, header)
+    assets = assemble_gim(files, header, fallback_voltage=fallback_voltage)
     if with_files:
         return assets, files
     return assets

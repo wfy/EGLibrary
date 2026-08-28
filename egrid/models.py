@@ -1,12 +1,13 @@
 """领域模型：电力矢量模型库的核心数据结构。"""
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def new_guid() -> str:
@@ -15,6 +16,22 @@ def new_guid() -> str:
 
 def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def normalize_voltage_level(value) -> str:
+    """电压等级归一化：去除开头 AC/DC 前缀与内部空格，统一单位大小写。
+
+    例：AC110kV / DC110kV / 110 KV / 110KV → 110kV；DC±500kV → ±500kV。
+    原始属性值不做此归一化，仅主字段与查询字段使用。
+    """
+    if not value:
+        return ""
+    v = str(value).strip()
+    v = re.sub(r"^(AC|DC)", "", v, flags=re.IGNORECASE).strip()
+    v = v.replace(" ", "")
+    if v.lower().endswith("kv") and not v.endswith("kV"):
+        v = v[:-2] + "kV"
+    return v
 
 
 class ModelType(str, Enum):
@@ -139,11 +156,16 @@ class ModelAsset(BaseModel):
     def touch(self) -> None:
         self.updated_at = utcnow()
 
+    @field_validator("voltage_level", mode="before")
+    @classmethod
+    def _normalize_voltage(cls, v):
+        return normalize_voltage_level(v)
+
 
 class ModelQuery(BaseModel):
     keyword: Optional[str] = None
-    category: Optional[str] = None
-    subcategory: Optional[str] = None
+    category: Optional[List[str]] = None
+    subcategory: Optional[List[str]] = None
     source: Optional[str] = None
     model_type: Optional[ModelType] = None
     stage: Optional[ModelStage] = None
@@ -154,6 +176,19 @@ class ModelQuery(BaseModel):
     tags: List[str] = Field(default_factory=list)
     offset: int = 0
     limit: int = 100
+
+    @field_validator("voltage_level", mode="before")
+    @classmethod
+    def _normalize_voltage(cls, v):
+        return normalize_voltage_level(v)
+
+    @field_validator("category", "subcategory", mode="before")
+    @classmethod
+    def _coerce_list(cls, v):
+        """兼容单字符串输入（旧客户端）：统一转成列表。"""
+        if v is None or isinstance(v, (list, tuple)):
+            return v
+        return [v]
 
 
 class PointCloudSample(BaseModel):

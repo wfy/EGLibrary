@@ -22,6 +22,18 @@ KIND_BY_MAGIC = {
     b"GIMPKEC": "cable",        # 电缆线路工程
 }
 
+# 工程类型 → 业务大类；未知/裸 7z 默认输电
+CATEGORY_BY_KIND = {
+    "substation": "变电",
+    "line": "输电",
+    "cable": "电缆",
+}
+
+
+def category_for_gim_kind(kind: str) -> str:
+    """GIM 文件头工程类型 → 业务大类（未知/裸 7z 默认输电）。"""
+    return CATEGORY_BY_KIND.get(kind or "", "输电")
+
 _NAME_OFFSET = 16
 _TIME_RE = re.compile(rb"\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?")
 # GBK 汉字区（连续双字节），用于提取头部中文元数据

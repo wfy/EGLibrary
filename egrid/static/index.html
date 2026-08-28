@@ -28,8 +28,8 @@
   button.danger:hover { background: #fdecea; border-color: #c0392b; }
   button.active { background: #e8eeff; border-color: #2b5fd9; color: #2b5fd9; }
   #search { width: 100%; padding: 6px 9px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 12px; }
-  .filters { display: flex; gap: 4px; padding: 8px 10px; flex-wrap: wrap; }
-  .filters > * { flex: 1; min-width: calc(50% - 4px); }
+  .filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 8px 10px; }
+  @media (max-width: 720px) { .filters { grid-template-columns: 1fr; } }
 
   /* ---------- 自定义下拉（选项列表内含添加/删除操作） ---------- */
   .dd { position: relative; }
@@ -37,18 +37,22 @@
     width: 100%; padding: 4px 8px; border: 1px solid #c8ceda; border-radius: 4px;
     font-size: 11px; background: #fff; cursor: pointer;
     display: flex; justify-content: space-between; align-items: center; box-sizing: border-box;
+    overflow: hidden;
   }
-  .dd-trigger::after { content: "▾"; color: #889; margin-left: 4px; }
+  .dd-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dd-trigger::after { content: "▾"; color: #889; margin-left: 4px; flex-shrink: 0; }
   .dd-panel {
     position: absolute; top: calc(100% + 2px); left: 0; right: 0;
     background: #fff; border: 1px solid #c8ceda; border-radius: 4px;
     box-shadow: 0 6px 18px rgba(0,0,0,.16); z-index: 60;
-    display: none; max-height: 260px; overflow-y: auto;
+    display: none; max-height: 260px; overflow-y: auto; min-width: 160px;
   }
   .dd.open .dd-panel { display: block; }
-  .dd-opt { padding: 5px 10px; font-size: 11px; cursor: pointer; }
+  .dd-opt { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 11px; cursor: pointer; }
   .dd-opt:hover { background: #f0f4ff; }
   .dd-opt.active { background: #e8eeff; color: #2b5fd9; }
+  .dd-check { width: 12px; color: #2b5fd9; font-weight: bold; flex-shrink: 0; }
+  .dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dd-actions { display: flex; border-top: 1px solid #eef1f4; position: sticky; bottom: 0; background: #fff; }
   .dd-actions button {
     flex: 1; border: none; background: #fff; padding: 6px 4px;
@@ -132,6 +136,12 @@
   .tab-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .tab-head .title { font-size: 13px; color: #33415c; font-weight: bold; }
   .hint { font-size: 11px; color: #99a; margin-left: auto; }
+  .q-btn {
+    padding: 3px 10px; border: 1px solid #c8ceda; border-radius: 4px;
+    background: #fff; cursor: pointer; font-size: 12px; color: #556;
+  }
+  .q-btn.active { background: #2b5fd9; color: #fff; border-color: #2b5fd9; }
+  #pc-custom { width: 92px; padding: 3px 8px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 12px; }
 
   canvas.view3d { flex: 1; width: 100%; border: 1px solid #eee; border-radius: 4px; background: #10141c; cursor: grab; display: block; min-height: 0; }
   canvas.view3d:active { cursor: grabbing; }
@@ -192,12 +202,7 @@
   <div class="filters">
     <div id="dd-domain" class="dd"></div>
     <div id="dd-etype" class="dd"></div>
-    <select id="filter-type"><option value="">全部类型</option></select>
-    <select id="filter-voltage">
-      <option value="">全部电压</option>
-      <option>10kV</option><option>35kV</option><option>110kV</option>
-      <option>220kV</option><option>500kV</option><option>750kV</option><option>1000kV</option>
-    </select>
+    <div id="dd-voltage" class="dd"></div>
   </div>
   <ul id="model-list"></ul>
   <div id="list-bar">
@@ -238,9 +243,13 @@
     <div class="tab-body" id="tab-pc">
       <div class="tab-head">
         <span class="title">点云三维展示</span>
-        <button id="btn-pointcloud">采样 2000 点</button>
+        <button class="q-btn" data-q="low">低</button>
+        <button class="q-btn active" data-q="medium">中</button>
+        <button class="q-btn" data-q="high">高</button>
+        <input id="pc-custom" type="number" min="1" max="100000" value="2000" placeholder="自定义点数" title="自定义点数（1-100000）">
+        <button class="primary" id="btn-pointcloud">采样</button>
         <button id="btn-pc-reset">重置视角</button>
-        <span class="hint">拖拽旋转 · 滚轮缩放</span>
+        <span class="hint">默认中档 2000 点，用于模型预训练 · 拖拽旋转 · 滚轮缩放</span>
       </div>
       <canvas id="pointcloud-canvas" class="view3d"></canvas>
     </div>
@@ -269,6 +278,23 @@
   <div class="dialog-actions">
     <button id="n-cancel">取消</button>
     <button class="primary" id="n-submit">创建</button>
+  </div>
+</dialog>
+
+<!-- 编辑基本信息弹窗 -->
+<dialog id="dlg-edit">
+  <h3>编辑基本信息</h3>
+  <label>名称</label>
+  <div id="e-name" style="font-size:13px;padding:7px 9px;border:1px solid #e3e7ec;border-radius:4px;background:#f7f9fb;word-break:break-all"></div>
+  <label>大类</label>
+  <select id="e-category"></select>
+  <label>子分类（设备类型）</label>
+  <select id="e-subcategory"></select>
+  <label>电压等级</label>
+  <input id="e-voltage" placeholder="如：110kV（AC/DC 前缀自动去除）">
+  <div class="dialog-actions">
+    <button id="e-cancel">取消</button>
+    <button class="primary" id="e-submit">保存</button>
   </div>
 </dialog>
 
@@ -693,12 +719,20 @@ function drawAxesIndicator(ctx, orbit, cv) {
 
 // ---------- 点云三维 ----------
 let pcData = null;
+const pointcloudState = { modelId: null, quality: "medium", status: "idle", requestSeq: 0 };
 const pcOrbit = makeOrbit($("pointcloud-canvas"));
 
 pcOrbit.onDraw = function drawPointcloud() {
   const cv = $("pointcloud-canvas"), ctx = cv.getContext("2d");
   ctx.clearRect(0, 0, cv.width, cv.height);
-  if (!pcData || !pcData.count) return;
+  if (!pcData) return;
+  if (!pcData.count) {
+    ctx.fillStyle = "#889";
+    ctx.font = "13px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("模型没有可采样几何", cv.width / 2, cv.height / 2);
+    return;
+  }
 
   const projected = pcData.points.map(([x, y, z]) => pcOrbit.project(x, y, z));
   const { s: k, ox, oy } = pcOrbit.fit(projected);
@@ -739,18 +773,51 @@ pcOrbit.onDraw = function drawPointcloud() {
 
 function clearPointcloud() {
   pcData = null;
+  pointcloudState.requestSeq++;   // 丢弃旧模型未完成的请求
+  pointcloudState.status = "idle";
+  $("btn-pointcloud").disabled = false;
+  $("btn-pointcloud").textContent = "采样";
   const cv = $("pointcloud-canvas");
   cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
 }
 
+document.querySelectorAll(".q-btn").forEach((btn) => {
+  btn.onclick = () => {
+    pointcloudState.quality = btn.dataset.q;
+    document.querySelectorAll(".q-btn").forEach((b) => b.classList.toggle("active", b === btn));
+  };
+});
+
 $("btn-pointcloud").onclick = async () => {
+  if (pointcloudState.status === "loading") return;
+  const seq = ++pointcloudState.requestSeq;
+  pointcloudState.status = "loading";
+  $("btn-pointcloud").disabled = true;
+  $("btn-pointcloud").textContent = "采样中…";
   try {
-    pcData = await (await api(`/api/models/${currentId}/pointcloud?count=2000&seed=42`)).json();
+    const params = new URLSearchParams({ seed: "42" });
+    if (pointcloudState.quality === "custom") {
+      params.set("quality", "custom");
+      params.set("count", $("pc-custom").value || "2000");
+    } else {
+      params.set("quality", pointcloudState.quality);
+    }
+    const data = await (await api(`/api/models/${currentId}/pointcloud?${params.toString()}`)).json();
+    if (seq !== pointcloudState.requestSeq) return;  // 已切换模型，丢弃
+    pcData = data;
     resizeCanvas($("pointcloud-canvas"));
     pcOrbit.reset();
     pcOrbit.draw();
-    toast(`已采样 ${pcData.count} 点`);
-  } catch (e) { toast("失败：" + e.message); }
+    toast(data.count ? `已采样 ${data.count} 点` : "模型没有可采样几何");
+  } catch (e) {
+    if (seq === pointcloudState.requestSeq) toast("失败：" + e.message);
+  } finally {
+    if (seq === pointcloudState.requestSeq) {
+      pointcloudState.status = "idle";
+      $("btn-pointcloud").disabled = false;
+      $("btn-pointcloud").textContent = "采样";
+    }
+  }
 };
 $("btn-pc-reset").onclick = () => { pcOrbit.reset(); pcOrbit.draw(); };
 
@@ -763,10 +830,9 @@ async function refreshList(page) {
   if (page !== undefined) currentPage = page;
   const params = new URLSearchParams();
   if ($("search").value.trim()) params.set("keyword", $("search").value.trim());
-  if (ddDomain.value) params.set("category", ddDomain.value);
-  if (ddEtype.value) params.set("subcategory", ddEtype.value);
-  if ($("filter-type").value) params.set("model_type", $("filter-type").value);
-  if ($("filter-voltage").value) params.set("voltage_level", $("filter-voltage").value);
+  for (const c of (ddDomain.value || [])) params.append("category", c);
+  for (const s of (ddEtype.value || [])) params.append("subcategory", s);
+  if (ddVoltage.value) params.set("voltage_level", ddVoltage.value);
   params.set("offset", (currentPage - 1) * PAGE_SIZE);
   params.set("limit", PAGE_SIZE);
 
@@ -812,6 +878,7 @@ async function selectModel(id) {
   clearPointcloud();
   loadStlParts(currentModel);
   await refreshVersions();
+  await loadFilterOptions();
 }
 
 function renderInfoPanel(model) {
@@ -873,6 +940,7 @@ function renderInfoPanel(model) {
     `<div class="op-box">` +
     `<h4>操作</h4>` +
     `<div class="op-row">` +
+    `<button class="primary" id="btn-edit">✎ 编辑基本信息</button>` +
     `<button class="primary" id="btn-export">⇩ 导出 GIM 包</button>` +
     `<button class="danger" id="btn-delete">✕ 删除模型</button>` +
     `</div>` +
@@ -884,6 +952,7 @@ function renderInfoPanel(model) {
     `<ul class="versions" id="version-list"></ul>` +
     `</div>`;
 
+  $("btn-edit").onclick = openEditDialog;
   $("btn-export").onclick = () => window.open(`/api/models/${currentId}/export`, "_blank");
   $("btn-delete").onclick = deleteModel;
   $("btn-version").onclick = createVersion;
@@ -1026,49 +1095,79 @@ $("import-file").onchange = async () => {
 // ---------- 分类管理（电力领域 × 设备类型，下拉面板内嵌添加/删除） ----------
 let catTree = [];
 let equipmentTypes = [];
+let voltageOptions = [];
 
 function makeTypeDropdown(containerId, opts) {
   const root = $(containerId);
   root.classList.add("dd");
-  root.innerHTML = '<div class="dd-trigger"><span></span></div><div class="dd-panel"></div>';
+  root.innerHTML = '<div class="dd-trigger" role="button" aria-haspopup="listbox" aria-expanded="false"><span></span></div><div class="dd-panel" role="listbox"></div>';
+  const trigger = root.querySelector(".dd-trigger");
   const triggerText = root.querySelector(".dd-trigger span");
   const panel = root.querySelector(".dd-panel");
-  let value = "";
+  const mode = opts.mode || "single";
+  let values = mode === "multiple" ? [] : "";
+
+  function selectedList() { return mode === "multiple" ? values : (values ? [values] : []); }
+  function isSelected(v) { return mode === "multiple" ? values.includes(v) : values === v; }
+  function triggerLabel() {
+    const sel = selectedList();
+    if (!sel.length) return "✅" + opts.allLabel;
+    if (mode === "multiple" && sel.length > 1) return `✅已选 ${sel.length} 项`;
+    return "✅" + sel[0];
+  }
 
   function render() {
     const options = opts.getOptions();
     panel.innerHTML =
       options.map((o) =>
-        `<div class="dd-opt${o === value ? " active" : ""}" data-v="${escapeHtml(o)}">${escapeHtml(o)}</div>`
+        `<div class="dd-opt${isSelected(o) ? " active" : ""}" data-v="${escapeHtml(o)}" role="option" aria-selected="${isSelected(o)}">` +
+        `<span class="dd-check">${isSelected(o) ? "✓" : ""}</span><span class="dd-label">${escapeHtml(o)}</span></div>`
       ).join("") +
-      '<div class="dd-actions">' +
-      '<button class="dd-add">＋ 添加…</button>' +
-      `<button class="dd-del"${value ? "" : " disabled"}>✕ 删除选中</button>` +
-      "</div>";
+      (opts.onAdd || opts.onDelete
+        ? '<div class="dd-actions">' +
+          (opts.onAdd ? '<button class="dd-add">＋ 添加…</button>' : "") +
+          (opts.onDelete ? `<button class="dd-del"${selectedList().length ? "" : " disabled"}>✕ 删除选中</button>` : "") +
+          "</div>"
+        : "");
     panel.querySelectorAll(".dd-opt").forEach((el) => {
-      el.onclick = () => { value = el.dataset.v; close(); render(); opts.onChange(value); };
+      el.onclick = () => {
+        const v = el.dataset.v;
+        if (mode === "multiple") {
+          values = values.includes(v) ? values.filter((x) => x !== v) : [...values, v];
+        } else {
+          values = values === v ? "" : v;
+        }
+        close(); render(); if (opts.onChange) opts.onChange();
+      };
     });
-    panel.querySelector(".dd-add").onclick = (e) => { e.stopPropagation(); opts.onAdd(); };
-    panel.querySelector(".dd-del").onclick = (e) => {
+    const addBtn = panel.querySelector(".dd-add");
+    if (addBtn) addBtn.onclick = (e) => { e.stopPropagation(); opts.onAdd(); };
+    const delBtn = panel.querySelector(".dd-del");
+    if (delBtn) delBtn.onclick = (e) => {
       e.stopPropagation();
-      if (value) opts.onDelete(value);
+      if (opts.onDelete) selectedList().forEach((v) => opts.onDelete(v));
     };
-    triggerText.textContent = value || opts.allLabel;
+    triggerText.textContent = triggerLabel();
+    trigger.setAttribute("aria-expanded", root.classList.contains("open") ? "true" : "false");
   }
-  function close() { root.classList.remove("open"); }
-  root.querySelector(".dd-trigger").onclick = () => {
+  function close() { root.classList.remove("open"); trigger.setAttribute("aria-expanded", "false"); }
+  trigger.onclick = () => {
     root.classList.toggle("open");
+    trigger.setAttribute("aria-expanded", root.classList.contains("open") ? "true" : "false");
     document.querySelectorAll(".dd.open").forEach((d) => { if (d !== root) d.classList.remove("open"); });
+    render();
   };
   document.addEventListener("click", (e) => { if (!root.contains(e.target)) close(); });
   return {
     render,
-    get value() { return value; },
-    set(v) { value = v; render(); },
+    get value() { return values; },
+    set(v) { values = v; render(); },
+    clear() { values = mode === "multiple" ? [] : ""; render(); },
   };
 }
 
 const ddDomain = makeTypeDropdown("dd-domain", {
+  mode: "multiple",
   allLabel: "全部大类",
   getOptions: () => catTree,
   onChange: () => refreshList(1),
@@ -1077,6 +1176,7 @@ const ddDomain = makeTypeDropdown("dd-domain", {
 });
 
 const ddEtype = makeTypeDropdown("dd-etype", {
+  mode: "multiple",
   allLabel: "全部设备类型",
   getOptions: () => equipmentTypes,
   onChange: () => refreshList(1),
@@ -1084,16 +1184,33 @@ const ddEtype = makeTypeDropdown("dd-etype", {
   onDelete: (v) => deleteType("etype", v),
 });
 
+const ddVoltage = makeTypeDropdown("dd-voltage", {
+  mode: "single",
+  allLabel: "全部电压等级",
+  getOptions: () => voltageOptions,
+  onChange: () => refreshList(1),
+});
+
 async function refreshCategories() {
   catTree = await (await api("/api/categories")).json();
   equipmentTypes = await (await api("/api/equipment-types")).json();
   // 当前选中值若已被删除则回退到「全部」
-  if (ddDomain.value && !catTree.includes(ddDomain.value)) ddDomain.set("");
-  if (ddEtype.value && !equipmentTypes.includes(ddEtype.value)) ddEtype.set("");
+  if ((ddDomain.value || []).some((v) => !catTree.includes(v))) ddDomain.clear();
+  if ((ddEtype.value || []).some((v) => !equipmentTypes.includes(v))) ddEtype.clear();
   ddDomain.render();
   ddEtype.render();
   $("n-category").innerHTML = catTree.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
   return catTree;
+}
+
+async function loadFilterOptions() {
+  const data = await (await api("/api/filter-options")).json();
+  voltageOptions = data.voltage_levels || [];
+  // 保留当前模型不在预置列表内的电压值
+  if (currentModel && currentModel.voltage_level && !voltageOptions.includes(currentModel.voltage_level)) {
+    voltageOptions = [...voltageOptions, currentModel.voltage_level];
+  }
+  ddVoltage.render();
 }
 
 // 添加/删除类型（kind: domain / etype）
@@ -1111,7 +1228,9 @@ async function addType(kind) {
     toast(`已添加${label}：${name.trim()}`);
     await refreshCategories();
     // 自动选中新项并筛选
-    (kind === "domain" ? ddDomain : ddEtype).set(name.trim());
+    const dd = kind === "domain" ? ddDomain : ddEtype;
+    if (dd.value && dd.value.includes) dd.set([...dd.value, name.trim()]);
+    else dd.set(name.trim());
     await refreshList(1);
   } catch (e) { toast("失败：" + e.message); }
 }
@@ -1205,18 +1324,63 @@ $("et-add").onclick = async () => {
   } catch (e) { toast("失败：" + e.message); }
 };
 
+// ---------- 编辑基本信息 ----------
+let editState = { id: null, saving: false };
+
+function openEditDialog() {
+  if (!currentModel) return;
+  editState.id = currentModel.id;
+  $("e-name").textContent = currentModel.name;
+  $("e-category").innerHTML = catTree.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
+  $("e-category").value = currentModel.category || "";
+  const subOptions = equipmentTypes.includes(currentModel.subcategory)
+    ? equipmentTypes
+    : [...equipmentTypes, currentModel.subcategory].filter(Boolean);
+  $("e-subcategory").innerHTML = subOptions.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
+  $("e-subcategory").value = currentModel.subcategory || "";
+  $("e-voltage").value = currentModel.voltage_level || "";
+  $("dlg-edit").showModal();
+}
+
+$("e-cancel").onclick = () => $("dlg-edit").close();
+
+$("e-submit").onclick = async () => {
+  if (editState.saving) return;
+  const patch = {
+    category: $("e-category").value,
+    subcategory: $("e-subcategory").value,
+    voltage_level: $("e-voltage").value.trim(),
+  };
+  editState.saving = true;
+  $("e-submit").disabled = true;
+  try {
+    const resp = await api("/api/models/" + editState.id, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    currentModel = await resp.json();
+    $("dlg-edit").close();
+    renderInfoPanel(currentModel);
+    await refreshList();
+    await loadFilterOptions();
+    toast("已保存基本信息");
+  } catch (e) {
+    toast("保存失败：" + e.message);
+  } finally {
+    editState.saving = false;
+    $("e-submit").disabled = false;
+  }
+};
+
 // ---------- 搜索 / 筛选 ----------
 $("search").addEventListener("keydown", (ev) => { if (ev.key === "Enter") refreshList(1); });
-$("filter-type").onchange = () => refreshList(1);
-$("filter-voltage").onchange = () => refreshList(1);
 
 // ---------- 启动 ----------
 (async function init() {
-  $("filter-type").innerHTML =
-    '<option value="">全部类型</option>' +
-    Object.entries(TYPE_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
   try {
     await refreshCategories();
+    await loadFilterOptions();
     await refreshList();
   } catch (e) {
     toast("加载失败：" + e.message);
