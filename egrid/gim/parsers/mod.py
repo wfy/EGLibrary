@@ -18,6 +18,11 @@ XML_PRIMITIVES = {
     "Cylinder": (PrimitiveType.CYLINDER, {"R": "radius", "H": "height"}),
     "Cone": (PrimitiveType.CONE, {"R": "radius", "H": "height"}),
     "Ring": (PrimitiveType.TORUS, {"R": "major_radius", "DR": "minor_radius"}),
+    # 实测扩展图元（山西院变压器 byq.gim）：套管/端子排/拉伸体/截锥
+    "PorcelainBushing": (PrimitiveType.CYLINDER, {"R1": "radius", "H": "height"}),
+    "TerminalBlock": (PrimitiveType.BOX, {"L": "depth", "W": "width", "T": "height"}),
+    "StretchedBody": (PrimitiveType.BOX, {"L": "depth"}),  # Array 顶点算包围盒宽高
+    "TruncatedCone": (PrimitiveType.CONE, {"BR": "radius", "TR": "radius2", "H": "height"}),
 }
 
 
@@ -86,6 +91,11 @@ def parse_mod_substation(text: str) -> list:
     params 携带 op/entity1/entity2，渲染按并集近似（保留参与图元）。
     """
     stripped = text.lstrip("\ufeff \t\r\n")
+    # XML 声明只能在文档首部；包装伪根后不允许出现在文档中间，需先剥离
+    if stripped.lower().startswith("<?xml"):
+        end = stripped.find("?>")
+        if end != -1:
+            stripped = stripped[end + 2:].lstrip("\ufeff \t\r\n")
     if not stripped.startswith("<"):
         return []
     try:
@@ -152,6 +162,21 @@ def parse_mod_substation(text: str) -> list:
                     params[param_key] = float(raw)
                 except ValueError:
                     continue
+            if child.tag == "StretchedBody":
+                # 拉伸体：Array 为轮廓顶点串 "x,y,z;x,y,z;..."，包围盒宽高
+                pts = []
+                for seg in (child.get("Array") or "").split(";"):
+                    parts = seg.strip().split(",")
+                    if len(parts) >= 2:
+                        try:
+                            pts.append((float(parts[0]), float(parts[1])))
+                        except ValueError:
+                            continue
+                if pts:
+                    xs = [p[0] for p in pts]
+                    ys = [p[1] for p in pts]
+                    params["width"] = max(xs) - min(xs)
+                    params["height"] = max(ys) - min(ys)
             prims.append(Primitive(
                 name=child.tag,
                 type=ptype,

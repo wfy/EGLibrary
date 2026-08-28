@@ -119,6 +119,25 @@ def _iter_solid_models(records: dict):
         yield value, m
 
 
+def _iter_device_refs(records: dict):
+    """遍历设备几何引用：SOLIDMODELn 与 SUBDEVICEn（均配 TRANSFORMMATRIXn）。
+
+    实测厂商差异：线路塔 dev 用 SOLIDMODEL 链；变电设备（山西院变压器）
+    根 dev 用 SUBDEVICEn 引用 28 个部件子 dev。"""
+    for key, value in records.items():
+        ku = key.upper()
+        for prefix in ("SOLIDMODEL", "SUBDEVICE"):
+            if ku == f"{prefix}S.NUM" or not ku.startswith(prefix):
+                continue
+            rest = ku[len(prefix):]
+            if rest != "0" and not rest.isdigit():
+                continue
+            m_raw = records.get(f"TRANSFORMMATRIX{rest}", "")
+            m = parse_transform(m_raw) if m_raw else IDENTITY4
+            yield value, m
+            break
+
+
 _STL_STATS_CACHE = {"files": None, "cache": {}}
 
 
@@ -175,7 +194,7 @@ def _collect_geometry(files: dict, dev_path: str, m_parent: list,
     dev = _records_cached(files, dev_path)
     base = Path(dev_path).parent.as_posix()
 
-    for ref, m_local in _iter_solid_models(dev):
+    for ref, m_local in _iter_device_refs(dev):
         sub_path = _resolve(files, base, ref)
         if sub_path not in files:
             continue
