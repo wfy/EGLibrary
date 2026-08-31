@@ -136,12 +136,11 @@
   .tab-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
   .tab-head .title { font-size: 13px; color: #33415c; font-weight: bold; }
   .hint { font-size: 11px; color: #99a; margin-left: auto; }
-  .q-btn {
-    padding: 3px 10px; border: 1px solid #c8ceda; border-radius: 4px;
-    background: #fff; cursor: pointer; font-size: 12px; color: #556;
+  #pc-count { width: 92px; padding: 3px 8px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 12px; }
+  .meta-grid select, .meta-grid input {
+    width: 100%; padding: 3px 6px; border: 1px solid #c8ceda; border-radius: 4px;
+    font-size: 11px; background: #fff; color: #222;
   }
-  .q-btn.active { background: #2b5fd9; color: #fff; border-color: #2b5fd9; }
-  #pc-custom { width: 92px; padding: 3px 8px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 12px; }
 
   canvas.view3d { flex: 1; width: 100%; border: 1px solid #eee; border-radius: 4px; background: #10141c; cursor: grab; display: block; min-height: 0; }
   canvas.view3d:active { cursor: grabbing; }
@@ -243,13 +242,10 @@
     <div class="tab-body" id="tab-pc">
       <div class="tab-head">
         <span class="title">点云三维展示</span>
-        <button class="q-btn" data-q="low">低</button>
-        <button class="q-btn active" data-q="medium">中</button>
-        <button class="q-btn" data-q="high">高</button>
-        <input id="pc-custom" type="number" min="1" max="100000" value="2000" placeholder="自定义点数" title="自定义点数（1-100000）">
+        <input id="pc-count" type="number" min="1" max="100000" value="10000" title="采样点数（1-100000）">
         <button class="primary" id="btn-pointcloud">采样</button>
         <button id="btn-pc-reset">重置视角</button>
-        <span class="hint">默认中档 2000 点，用于模型预训练 · 拖拽旋转 · 滚轮缩放</span>
+        <span class="hint">自定义点数 · 用于模型预训练 · 拖拽旋转 · 滚轮缩放</span>
       </div>
       <canvas id="pointcloud-canvas" class="view3d"></canvas>
     </div>
@@ -278,23 +274,6 @@
   <div class="dialog-actions">
     <button id="n-cancel">取消</button>
     <button class="primary" id="n-submit">创建</button>
-  </div>
-</dialog>
-
-<!-- 编辑基本信息弹窗 -->
-<dialog id="dlg-edit">
-  <h3>编辑基本信息</h3>
-  <label>名称</label>
-  <div id="e-name" style="font-size:13px;padding:7px 9px;border:1px solid #e3e7ec;border-radius:4px;background:#f7f9fb;word-break:break-all"></div>
-  <label>大类</label>
-  <select id="e-category"></select>
-  <label>子分类（设备类型）</label>
-  <select id="e-subcategory"></select>
-  <label>电压等级</label>
-  <input id="e-voltage" placeholder="如：110kV（AC/DC 前缀自动去除）">
-  <div class="dialog-actions">
-    <button id="e-cancel">取消</button>
-    <button class="primary" id="e-submit">保存</button>
   </div>
 </dialog>
 
@@ -659,15 +638,15 @@ $("btn-wire-reset").onclick = () => {
 };
 
 // ---------- 场景辅助：地面网格 + 右上角轴向指示 ----------
-function drawGrid(ctx, orbit, half, step, ox, oy, k) {
+function drawGrid(ctx, orbit, half, step, ox, oy, k, z = 0) {
   ctx.strokeStyle = "rgba(120,140,170,0.28)";
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let v = -half; v <= half + 1e-6; v += step) {
-    const a = orbit.project(v, -half, 0), b = orbit.project(v, half, 0);
+    const a = orbit.project(v, -half, z), b = orbit.project(v, half, z);
     ctx.moveTo(ox + a[0] * k, oy + a[1] * k);
     ctx.lineTo(ox + b[0] * k, oy + b[1] * k);
-    const c = orbit.project(-half, v, 0), d = orbit.project(half, v, 0);
+    const c = orbit.project(-half, v, z), d = orbit.project(half, v, z);
     ctx.moveTo(ox + c[0] * k, oy + c[1] * k);
     ctx.lineTo(ox + d[0] * k, oy + d[1] * k);
   }
@@ -719,7 +698,7 @@ function drawAxesIndicator(ctx, orbit, cv) {
 
 // ---------- 点云三维 ----------
 let pcData = null;
-const pointcloudState = { modelId: null, quality: "medium", status: "idle", requestSeq: 0 };
+const pointcloudState = { status: "idle", requestSeq: 0 };
 const pcOrbit = makeOrbit($("pointcloud-canvas"));
 
 pcOrbit.onDraw = function drawPointcloud() {
@@ -737,13 +716,16 @@ pcOrbit.onDraw = function drawPointcloud() {
   const projected = pcData.points.map(([x, y, z]) => pcOrbit.project(x, y, z));
   const { s: k, ox, oy } = pcOrbit.fit(projected);
 
-  // 地面网格
+  // 地面网格：以点云 x/y 水平范围与场景 z 中心为基准（不把 z 高度当横向半径）
   let half = 100;
-  for (const [x, y] of pcData.points) {
+  let zMin = Infinity, zMax = -Infinity;
+  for (const [x, y, z] of pcData.points) {
     half = Math.max(half, Math.abs(x), Math.abs(y));
+    if (z < zMin) zMin = z;
+    if (z > zMax) zMax = z;
   }
   half *= 1.25;
-  drawGrid(ctx, pcOrbit, half, half / 5, ox, oy, k);
+  drawGrid(ctx, pcOrbit, half, half / 5, ox, oy, k, (zMin + zMax) / 2 || 0);
 
   const palette = {};
   for (const label of new Set(pcData.labels)) {
@@ -781,13 +763,6 @@ function clearPointcloud() {
   cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
 }
 
-document.querySelectorAll(".q-btn").forEach((btn) => {
-  btn.onclick = () => {
-    pointcloudState.quality = btn.dataset.q;
-    document.querySelectorAll(".q-btn").forEach((b) => b.classList.toggle("active", b === btn));
-  };
-});
-
 $("btn-pointcloud").onclick = async () => {
   if (pointcloudState.status === "loading") return;
   const seq = ++pointcloudState.requestSeq;
@@ -796,12 +771,7 @@ $("btn-pointcloud").onclick = async () => {
   $("btn-pointcloud").textContent = "采样中…";
   try {
     const params = new URLSearchParams({ seed: "42" });
-    if (pointcloudState.quality === "custom") {
-      params.set("quality", "custom");
-      params.set("count", $("pc-custom").value || "2000");
-    } else {
-      params.set("quality", pointcloudState.quality);
-    }
+    params.set("count", $("pc-count").value || "10000");
     const data = await (await api(`/api/models/${currentId}/pointcloud?${params.toString()}`)).json();
     if (seq !== pointcloudState.requestSeq) return;  // 已切换模型，丢弃
     pcData = data;
@@ -894,16 +864,23 @@ function renderInfoPanel(model) {
     : "—";
   const basicRows = [
     ["编码", model.code || "—"],
-    ["大类", model.category || "—"],
-    ["子分类", model.subcategory || "—"],
     ["来源", (SOURCE_LABELS[model.source] || model.source || "手工") + "　" + originText],
-    ["电压等级", model.voltage_level || "—"],
     ["类型", TYPE_LABELS[model.model_type] || model.model_type],
     ["阶段", STAGE_LABELS[model.stage] || model.stage],
     ["版本", model.version],
     ["图元数", model.geometry.primitives.length],
     ["描述", model.description || "—"],
   ];
+  // 可编辑项：大类 / 子分类 / 电压等级（直接编辑，保存走 PUT）
+  const catOpts = catTree.map((n) => `<option${n === model.category ? " selected" : ""}>${escapeHtml(n)}</option>`).join("");
+  const subPool = equipmentTypes.includes(model.subcategory)
+    ? equipmentTypes
+    : [...equipmentTypes, model.subcategory].filter(Boolean);
+  const subOpts = subPool.map((n) => `<option${n === model.subcategory ? " selected" : ""}>${escapeHtml(n)}</option>`).join("");
+  const editRows =
+    `<div class="wide"><b>大类</b><select id="ie-category">${catOpts}</select></div>` +
+    `<div class="wide"><b>子分类</b><select id="ie-subcategory">${subOpts}</select></div>` +
+    `<div class="wide"><b>电压等级</b><input id="ie-voltage" value="${escapeHtml(model.voltage_level || "")}" placeholder="如：110kV（AC/DC 前缀自动去除）"></div>`;
   const groupHtml = Object.keys(groups).map((cat) => {
     const list = groups[cat];
     const label = CATEGORY_LABELS[cat] || cat;
@@ -919,8 +896,13 @@ function renderInfoPanel(model) {
   panel.innerHTML =
     `<div id="info-name">${escapeHtml(model.name)}</div>` +
     `<div id="info-sub">${escapeHtml(TYPE_LABELS[model.model_type] || "")} · ${escapeHtml(STAGE_LABELS[model.stage] || "")}</div>` +
-    `<h4>基本信息</h4>` +
+    `<h4>基本信息` +
+    `<span class="op-row" style="display:inline-flex;margin:0 0 0 8px;vertical-align:middle">` +
+    `<button id="btn-info-save" style="padding:2px 10px">保存</button>` +
+    `<button id="btn-info-cancel" style="padding:2px 10px">取消</button>` +
+    `</span></h4>` +
     `<div class="meta-grid">` +
+    editRows +
     basicRows.map(([k, v]) => {
       const wide = k === "描述" ? " wide" : "";
       return `<div class="${wide}"><b>${k}</b>　${escapeHtml(String(v))}</div>`;
@@ -940,7 +922,6 @@ function renderInfoPanel(model) {
     `<div class="op-box">` +
     `<h4>操作</h4>` +
     `<div class="op-row">` +
-    `<button class="primary" id="btn-edit">✎ 编辑基本信息</button>` +
     `<button class="primary" id="btn-export">⇩ 导出 GIM 包</button>` +
     `<button class="danger" id="btn-delete">✕ 删除模型</button>` +
     `</div>` +
@@ -952,7 +933,8 @@ function renderInfoPanel(model) {
     `<ul class="versions" id="version-list"></ul>` +
     `</div>`;
 
-  $("btn-edit").onclick = openEditDialog;
+  $("btn-info-save").onclick = saveBasicInfo;
+  $("btn-info-cancel").onclick = () => renderInfoPanel(currentModel);
   $("btn-export").onclick = () => window.open(`/api/models/${currentId}/export`, "_blank");
   $("btn-delete").onclick = deleteModel;
   $("btn-version").onclick = createVersion;
@@ -1118,10 +1100,12 @@ function makeTypeDropdown(containerId, opts) {
 
   function render() {
     const options = opts.getOptions();
+    // “全部”状态（未选择任何项）下所有选项显示为已选勾选态
+    const all = !selectedList().length;
     panel.innerHTML =
       options.map((o) =>
-        `<div class="dd-opt${isSelected(o) ? " active" : ""}" data-v="${escapeHtml(o)}" role="option" aria-selected="${isSelected(o)}">` +
-        `<span class="dd-check">${isSelected(o) ? "✓" : ""}</span><span class="dd-label">${escapeHtml(o)}</span></div>`
+        `<div class="dd-opt${all || isSelected(o) ? " active" : ""}" data-v="${escapeHtml(o)}" role="option" aria-selected="${all || isSelected(o)}">` +
+        `<span class="dd-check">${all || isSelected(o) ? "✓" : ""}</span><span class="dd-label">${escapeHtml(o)}</span></div>`
       ).join("") +
       (opts.onAdd || opts.onDelete
         ? '<div class="dd-actions">' +
@@ -1324,54 +1308,29 @@ $("et-add").onclick = async () => {
   } catch (e) { toast("失败：" + e.message); }
 };
 
-// ---------- 编辑基本信息 ----------
-let editState = { id: null, saving: false };
-
-function openEditDialog() {
+// ---------- 基本信息直接编辑 ----------
+async function saveBasicInfo() {
   if (!currentModel) return;
-  editState.id = currentModel.id;
-  $("e-name").textContent = currentModel.name;
-  $("e-category").innerHTML = catTree.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
-  $("e-category").value = currentModel.category || "";
-  const subOptions = equipmentTypes.includes(currentModel.subcategory)
-    ? equipmentTypes
-    : [...equipmentTypes, currentModel.subcategory].filter(Boolean);
-  $("e-subcategory").innerHTML = subOptions.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
-  $("e-subcategory").value = currentModel.subcategory || "";
-  $("e-voltage").value = currentModel.voltage_level || "";
-  $("dlg-edit").showModal();
-}
-
-$("e-cancel").onclick = () => $("dlg-edit").close();
-
-$("e-submit").onclick = async () => {
-  if (editState.saving) return;
   const patch = {
-    category: $("e-category").value,
-    subcategory: $("e-subcategory").value,
-    voltage_level: $("e-voltage").value.trim(),
+    category: $("ie-category").value,
+    subcategory: $("ie-subcategory").value,
+    voltage_level: $("ie-voltage").value.trim(),
   };
-  editState.saving = true;
-  $("e-submit").disabled = true;
   try {
-    const resp = await api("/api/models/" + editState.id, {
+    const resp = await api("/api/models/" + currentModel.id, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     });
     currentModel = await resp.json();
-    $("dlg-edit").close();
     renderInfoPanel(currentModel);
     await refreshList();
     await loadFilterOptions();
     toast("已保存基本信息");
   } catch (e) {
     toast("保存失败：" + e.message);
-  } finally {
-    editState.saving = false;
-    $("e-submit").disabled = false;
   }
-};
+}
 
 // ---------- 搜索 / 筛选 ----------
 $("search").addEventListener("keydown", (ev) => { if (ev.key === "Enter") refreshList(1); });

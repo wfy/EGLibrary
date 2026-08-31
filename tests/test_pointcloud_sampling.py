@@ -61,6 +61,52 @@ def test_mixed_primitives_and_stl():
     assert "b" in out.labels and "箱体" in out.labels
 
 
+def test_stl_area_proportional_allocation():
+    """STL 预算按三角面总面积分配：大面积部件点数显著多于小面积部件。"""
+    big = [[[0, 0, 0], [100, 0, 0], [0, 100, 0]]]      # 面积 5000
+    small = [[[0, 0, 0], [10, 0, 0], [0, 10, 0]]]      # 面积 50
+    model = ModelAsset(name="x", geometry=Geometry())
+    out = render.sample_model_pointcloud(
+        model, count=1000, seed=1,
+        stl_sources=[
+            {"path": "STL/big.stl", "transform": [], "triangles": big},
+            {"path": "STL/small.stl", "transform": [], "triangles": small},
+        ])
+    n_big = sum(1 for l in out.labels if l == "big")
+    n_small = sum(1 for l in out.labels if l == "small")
+    assert out.count == 1000
+    assert n_big > n_small * 10
+    assert n_small >= 1
+
+
+def test_degenerate_stl_sources_do_not_break_allocation():
+    """退化/空三角面源不得破坏总数精确性。"""
+    flat = [[[0, 0, 0], [1, 1, 0], [2, 2, 0]]]  # 共线，面积≈0
+    model = ModelAsset(name="x", geometry=Geometry())
+    out = render.sample_model_pointcloud(
+        model, count=300, seed=2,
+        stl_sources=[
+            {"path": "STL/g.stl", "transform": [], "triangles": flat},
+            {"path": "STL/h.stl", "transform": [], "triangles": _stl_triangles()},
+        ])
+    assert out.count == 300
+    assert "h" in out.labels
+
+
+def test_stl_sampling_spreads_over_surface():
+    """采样须覆盖整个 STL 表面：等面积长条模型不得集中到少数三角面（累计面积二分回归）。"""
+    tris = []
+    for i in range(100):
+        tris.append([[0, 0, i], [10, 0, i], [0, 10, i]])  # 100 个同面积面沿 z 均匀铺开
+    model = ModelAsset(name="x", geometry=Geometry())
+    out = render.sample_model_pointcloud(
+        model, count=1000, seed=7,
+        stl_sources=[{"path": "STL/bar.stl", "transform": [], "triangles": tris}])
+    zs = [p[2] for p in out.points]
+    assert min(zs) <= 5 and max(zs) >= 95          # 覆盖两端
+    assert len(set(round(z, 1) for z in zs)) >= 50  # 分布在多个层面
+
+
 def test_no_geometry_empty():
     out = render.sample_model_pointcloud(ModelAsset(name="x", geometry=Geometry()), count=100)
     assert out.count == 0

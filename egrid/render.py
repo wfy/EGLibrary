@@ -178,32 +178,42 @@ POINTCLOUD_QUALITY_COUNTS = {
 }
 
 
+def _stl_areas(triangles: List[list]) -> List[float]:
+    """各三角面的面积（退化三角形面积≈0）。"""
+    areas = []
+    for (a, b, c) in triangles:
+        ab = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
+        ac = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
+        cross = (
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        )
+        areas.append(0.5 * math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2))
+    return areas
+
+
 def _sample_stl_points(triangles: List[list], transform: list, count: int, rng) -> List[list]:
     """STL 三角面面积加权随机采样；transform 为 M·v 列向量矩阵（平移在 3/7/11）。"""
     if not triangles or count <= 0:
         return []
-    areas = []
-    total = 0.0
-    for (a, b, c) in triangles:
-        ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
-        ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]
-        cross = [
-            ab[1] * ac[2] - ab[2] * ac[1],
-            ab[2] * ac[0] - ab[0] * ac[2],
-            ab[0] * ac[1] - ab[1] * ac[0],
-        ]
-        area = 0.5 * math.sqrt(cross[0] ** 2 + cross[1] ** 2 + cross[2] ** 2)
-        areas.append(area)
-        total += area
+    areas = _stl_areas(triangles)
+    total = sum(areas)
+    # 递增累计面积，二分检索用（areas 为单面面积，直接二分会把随机值推到最后一面）
+    cum = []
+    acc = 0.0
+    for a in areas:
+        acc += a
+        cum.append(acc)
 
     def pick_index():
         if total <= 0:
             return rng.randrange(len(triangles))
         r = rng.random() * total
-        lo, hi = 0, len(areas)
+        lo, hi = 0, len(cum)
         while lo < hi:
             mid = (lo + hi) // 2
-            if areas[mid] < r:
+            if cum[mid] < r:
                 lo = mid + 1
             else:
                 hi = mid
@@ -250,22 +260,41 @@ def sample_model_pointcloud(
         return PointCloudSample(model_id=model.id, points=[], labels=[], count=0)
 
     n_sources = len(primitives) + len(stl_sources)
-    per = max(1, count // n_sources)
-    # 余数补足：前 extra 个源多采 1 点，尽量精确返回目标点数
-    extra = max(0, count - per * n_sources)
+    # 各源采样权重：参数化图元均分（权重 1），STL 按三角面总面积（面积大的部件点数多）
+    weights = [1.0] * len(primitives)
+    weights.extend(sum(_stl_areas(src.get("triangles") or [])) for src in stl_sources)
+    w_total = sum(weights)
+    if w_total <= 0:
+        per = max(1, count // n_sources)
+        extra = max(0, count - per * n_sources)
+        alloc = [per + (1 if i < extra else 0) for i in range(n_sources)]
+    else:
+        alloc = [max(1, int(count * w / w_total)) if w > 0 else 0 for w in weights]
+        diff = count - sum(alloc)
+        if diff > 0:
+            idx = max(range(n_sources), key=lambda i: weights[i])
+            alloc[idx] += diff
+        elif diff < 0:
+            for i in sorted(range(n_sources), key=lambda i: -weights[i]):
+                if diff == 0:
+                    break
+                take = min(alloc[i] - 1, -diff)
+                if take > 0:
+                    alloc[i] -= take
+                    diff += take
+
     points: List[List[float]] = []
     labels: List[str] = []
     for i, prim in enumerate(primitives):
-        pts = _sample_primitive_points(prim, per + (1 if i < extra else 0))
+        pts = _sample_primitive_points(prim, alloc[i])
         points.extend([[round(v, 3) for v in p] for p in pts])
         labels.extend([prim.name or prim.type.value] * len(pts))
     for i, src in enumerate(stl_sources):
-        n = per + (1 if len(primitives) + i < extra else 0)
-        pts = _sample_stl_points(src.get("triangles") or [], src.get("transform") or [], n, rng)
+        pts = _sample_stl_points(src.get("triangles") or [], src.get("transform") or [], alloc[len(primitives) + i], rng)
         label = Path(src.get("path", "")).stem or "stl"
         points.extend([[round(v, 3) for v in p] for p in pts])
         labels.extend([label] * len(pts))
-    # 截断到目标数量（与图元数整除时精确返回 count）
+    # 截断到目标数量（精确返回 count）
     points = points[:count]
     labels = labels[:count]
     return PointCloudSample(model_id=model.id, points=points, labels=labels, count=len(points))
