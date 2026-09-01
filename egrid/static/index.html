@@ -463,18 +463,26 @@ wireOrbit.onDraw = function drawWire() {
     }
   }
 
-  const { s: k, ox, oy } = wireOrbit.fit(pts2d);
+ const { s: k, ox, oy } = wireOrbit.fit(pts2d);
 
-  // 地面网格（z=0 平面，范围随模型）
-  let half = 1000;
+ // 地面网格（z=0 平面，范围随模型）
+  let half = 100;
+  let zMin = Infinity;
   for (const seg of wireSegments) {
     half = Math.max(half, Math.abs(seg.x1), Math.abs(seg.y1), Math.abs(seg.x2), Math.abs(seg.y2));
+    if (seg.z1 < zMin) zMin = seg.z1;
+    if (seg.z2 < zMin) zMin = seg.z2;
   }
-  for (const seg of stlDraw) {
-    half = Math.max(half, Math.abs(seg.a[0]), Math.abs(seg.a[1]));
+  for (const part of stlParts) {
+    for (const s of part.edges) {
+      half = Math.max(half, Math.abs(s.x1), Math.abs(s.y1), Math.abs(s.x2), Math.abs(s.y2));
+      if (s.z1 < zMin) zMin = s.z1;
+      if (s.z2 < zMin) zMin = s.z2;
+    }
   }
-  half *= 1.25;
-  drawGrid(ctx, wireOrbit, half, half / 5, ox, oy, k);
+  half = (half || 100) * 1.25;
+  const gridZ = zMin !== Infinity ? zMin : 0;
+  drawGrid(ctx, wireOrbit, half, half / 5, ox, oy, k, gridZ);
 
   ctx.lineWidth = 1;
   ctx.globalAlpha = 0.9;
@@ -654,7 +662,7 @@ function drawGrid(ctx, orbit, half, step, ox, oy, k, z = 0) {
   // Z 轴立杆
   ctx.strokeStyle = "rgba(150,170,200,0.5)";
   ctx.beginPath();
-  const z0 = orbit.project(0, 0, 0), z1 = orbit.project(0, 0, half);
+  const z0 = orbit.project(0, 0, z), z1 = orbit.project(0, 0, z + half);
   ctx.moveTo(ox + z0[0] * k, oy + z0[1] * k);
   ctx.lineTo(ox + z1[0] * k, oy + z1[1] * k);
   ctx.stroke();
@@ -718,14 +726,14 @@ pcOrbit.onDraw = function drawPointcloud() {
 
   // 地面网格：以点云 x/y 水平范围与场景 z 中心为基准（不把 z 高度当横向半径）
   let half = 100;
-  let zMin = Infinity, zMax = -Infinity;
+  let zMin = Infinity;
   for (const [x, y, z] of pcData.points) {
     half = Math.max(half, Math.abs(x), Math.abs(y));
     if (z < zMin) zMin = z;
-    if (z > zMax) zMax = z;
   }
-  half *= 1.25;
-  drawGrid(ctx, pcOrbit, half, half / 5, ox, oy, k, (zMin + zMax) / 2 || 0);
+  half = (half || 100) * 1.25;
+  const pcGridZ = zMin !== Infinity ? zMin : 0;
+  drawGrid(ctx, pcOrbit, half, half / 5, ox, oy, k, pcGridZ);
 
   const palette = {};
   for (const label of new Set(pcData.labels)) {
