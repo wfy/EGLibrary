@@ -148,12 +148,16 @@ class ModelService:
 
     def sample_pointcloud(self, model_id: str, count: int, seed: Optional[int] = None):
         """模型点云采样：参数化图元 + STL（沿父链查找根模型 STL 文件）。"""
-        from .gim.parsers.stl import stl_triangles
         from .render import sample_model_pointcloud
 
         model = self.repo.get_model(model_id)
         if not model:
             raise KeyError(f"模型不存在: {model_id}")
+        stl_sources = self._collect_stl_sources(model)
+        return sample_model_pointcloud(model, count=count, seed=seed, stl_sources=stl_sources)
+
+    def _collect_stl_sources(self, model: ModelAsset) -> List[dict]:
+        from .gim.parsers.stl import stl_triangles
         parts = model.extra.get("stl_parts") or []
         stl_sources = []
         if parts:
@@ -182,7 +186,54 @@ class ModelService:
                     "transform": part.get("transform") or [],
                     "triangles": list(stl_triangles(file_path.read_bytes())),
                 })
-        return sample_model_pointcloud(model, count=count, seed=seed, stl_sources=stl_sources)
+        return stl_sources
+
+    def export_mesh(self, model_id: str, fmt: str = "obj") -> Tuple[bytes, str, str]:
+        """导出模型三维几何（obj / stl）。返回 (bytes, filename, media_type)"""
+        from .exporters import export_obj_mesh, export_stl_bytes
+
+        model = self.repo.get_model(model_id)
+        if not model:
+            raise KeyError(f"模型不存在: {model_id}")
+        stl_sources = self._collect_stl_sources(model)
+
+        fmt = fmt.lower()
+        safe_name = "".join(c for c in model.name if c.isalnum() or c in ("-", "_", " ")).strip() or "model"
+        if fmt == "stl":
+            data = export_stl_bytes(model, stl_sources=stl_sources)
+            return data, f"{safe_name}.stl", "application/octet-stream"
+        else:
+            txt = export_obj_mesh(model, stl_sources=stl_sources)
+            return txt.encode("utf-8"), f"{safe_name}.obj", "text/plain; charset=utf-8"
+
+    def export_pointcloud_dataset(
+        self,
+        model_id: str,
+        fmt: str = "las",
+        count: int = 2000,
+        noise: float = 0.0,
+        augment: bool = False,
+        seed: Optional[int] = None,
+    ) -> Tuple[bytes, str, str]:
+        """导出 AI 训练点云（las / txt）。返回 (bytes, filename, media_type)"""
+        from .exporters import augment_pointcloud, export_las_bytes, export_txt_pointcloud
+
+        model = self.repo.get_model(model_id)
+        if not model:
+            raise KeyError(f"模型不存在: {model_id}")
+        sample = self.sample_pointcloud(model_id, count=count, seed=seed)
+        pts = sample.points
+        if noise > 0 or augment:
+            pts = augment_pointcloud(pts, noise=noise, augment=augment, seed=seed)
+
+        fmt = fmt.lower()
+        safe_name = "".join(c for c in model.name if c.isalnum() or c in ("-", "_", " ")).strip() or "pointcloud"
+        if fmt == "las":
+            data = export_las_bytes(pts, sample.labels)
+            return data, f"{safe_name}.las", "application/octet-stream"
+        else:
+            txt = export_txt_pointcloud(pts, sample.labels)
+            return txt.encode("utf-8"), f"{safe_name}.txt", "text/plain; charset=utf-8"
 
     # ---------- 文件存储 ----------
     def _file_path(self, model_id: str, relative_path: str) -> Path:

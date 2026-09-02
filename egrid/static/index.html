@@ -1,211 +1,200 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8">
+
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EGLibrary — 电网矢量模型库</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-    display: flex; height: 100vh; background: #f4f6f8; color: #222;
-  }
-  /* ---------- 左栏 ---------- */
-  #sidebar {
-    width: 360px; min-width: 360px; background: #fff;
-    border-right: 1px solid #e0e4e8; display: flex; flex-direction: column;
-  }
-  #sidebar header { padding: 12px 14px 10px; border-bottom: 1px solid #eef1f4; }
-  #sidebar header h1 { font-size: 16px; margin-bottom: 8px; }
-  .toolbar { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-  button {
-    padding: 5px 10px; border: 1px solid #c8ceda; border-radius: 4px;
-    background: #fafbfc; cursor: pointer; font-size: 12px;
-  }
-  button:hover { background: #eef2ff; border-color: #7a8cd8; }
-  button.primary { background: #2b5fd9; color: #fff; border-color: #2b5fd9; }
-  button.primary:hover { background: #2450bd; }
-  button.danger { color: #c0392b; }
-  button.danger:hover { background: #fdecea; border-color: #c0392b; }
-  button.active { background: #e8eeff; border-color: #2b5fd9; color: #2b5fd9; }
-  #search { width: 100%; padding: 6px 9px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 12px; }
-  .filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 8px 10px; }
-  @media (max-width: 720px) { .filters { grid-template-columns: 1fr; } }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #f1f5f9; color: #1e293b; height: 100vh; display: flex; overflow: hidden;
+}
+#sidebar {
+  width: 380px; background: #fff; border-right: 1px solid #cbd5e1; display: flex; flex-direction: column; flex-shrink: 0;
+}
+#sidebar header { padding: 14px 16px 10px; border-bottom: 1px solid #e2e8f0; }
+#sidebar header h1 { font-size: 16px; font-weight: 700; color: #0f172a; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.toolbar { display: flex; gap: 6px; margin-bottom: 8px; }
+button {
+  padding: 6px 12px; font-size: 12px; border-radius: 4px; border: 1px solid #cbd5e1;
+  background: #fff; color: #334155; cursor: pointer; transition: all 0.15s ease;
+}
+button:hover { background: #f8fafc; border-color: #94a3b8; }
+button.primary { background: #2563eb; color: #fff; border-color: #1d4ed8; font-weight: 500; }
+button.primary:hover { background: #1d4ed8; }
+button.danger { background: #ef4444; color: #fff; border-color: #dc2626; }
+button.danger:hover { background: #dc2626; }
+input, select, textarea {
+  width: 100%; padding: 6px 10px; font-size: 12px; border: 1px solid #cbd5e1;
+  border-radius: 4px; background: #fff; color: #1e293b; outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
 
-  /* ---------- 自定义下拉（选项列表内含添加/删除操作） ---------- */
-  .dd { position: relative; }
-  .dd-trigger {
-    width: 100%; padding: 4px 8px; border: 1px solid #c8ceda; border-radius: 4px;
-    font-size: 11px; background: #fff; cursor: pointer;
-    display: flex; justify-content: space-between; align-items: center; box-sizing: border-box;
-    overflow: hidden;
-  }
-  .dd-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dd-trigger::after { content: "▾"; color: #889; margin-left: 4px; flex-shrink: 0; }
-  .dd-panel {
-    position: absolute; top: calc(100% + 2px); left: 0; right: 0;
-    background: #fff; border: 1px solid #c8ceda; border-radius: 4px;
-    box-shadow: 0 6px 18px rgba(0,0,0,.16); z-index: 60;
-    display: none; max-height: 260px; overflow-y: auto; min-width: 160px;
-  }
-  .dd.open .dd-panel { display: block; }
-  .dd-opt { display: flex; align-items: center; gap: 6px; padding: 5px 10px; font-size: 11px; cursor: pointer; }
-  .dd-opt:hover { background: #f0f4ff; }
-  .dd-opt.active { background: #e8eeff; color: #2b5fd9; }
-  .dd-check { width: 12px; color: #2b5fd9; font-weight: bold; flex-shrink: 0; }
-  .dd-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dd-actions { display: flex; border-top: 1px solid #eef1f4; position: sticky; bottom: 0; background: #fff; }
-  .dd-actions button {
-    flex: 1; border: none; background: #fff; padding: 6px 4px;
-    font-size: 11px; cursor: pointer; color: #2b5fd9;
-  }
-  .dd-actions button:hover { background: #f5f7ff; }
-  .dd-actions button:disabled { color: #bbb; cursor: default; background: #fff; }
-  .dd-actions button + button { border-left: 1px solid #eef1f4; }
-  #model-list { flex: 1; overflow-y: auto; list-style: none; min-height: 90px; border-bottom: 1px solid #e0e4e8; }
-  #model-list li {
-    padding: 6px 14px; cursor: pointer; border-bottom: 1px solid #f0f2f5; font-size: 12px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  #model-list li:hover { background: #f5f7ff; }
-  #model-list li.active { background: #e8eeff; border-left: 3px solid #2b5fd9; padding-left: 11px; }
-  #model-list .m-code { color: #999; font-size: 11px; margin-left: 4px; }
-  .src-badge {
-    display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px;
-    font-size: 10px; background: #e8f4ec; color: #2e7d4f; border: 1px solid #bfe0cc;
-    vertical-align: middle;
-  }
-  .src-badge.gim { background: #e8eeff; color: #2b5fd9; border-color: #c3d2f5; }
-  #cat-list li.sub { padding-left: 22px; color: #667; }
-  .stl-list { display: flex; flex-direction: column; gap: 2px; }
-  .stl-item {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 4px 8px; border: 1px solid #e3e7ec; border-radius: 4px;
-    font-size: 11px; cursor: pointer; word-break: break-all;
-  }
-  .stl-item:hover { background: #f0f4ff; border-color: #7a8cd8; }
-  .stl-item.active { background: #fff6d9; border-color: #d9a900; color: #8a6d00; }
-  .stl-item .stl-faces { color: #99a; font-size: 10px; margin-left: 6px; white-space: nowrap; }
-  #list-bar {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 4px 14px; border-top: 1px solid #eef1f4;
-  }
-  #list-count { font-size: 11px; color: #999; padding: 2px 0; }
-  .pager { display: flex; align-items: center; gap: 6px; }
-  .pager button { padding: 1px 8px; font-size: 12px; }
-  .pager button:disabled { opacity: .35; cursor: default; }
-  #pg-info { font-size: 11px; color: #777; min-width: 34px; text-align: center; }
+.filters-row { display: flex; gap: 6px; padding: 6px 12px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; }
+.type-dropdown-wrap { position: relative; flex: 1; min-width: 0; }
+.type-dropdown-btn {
+  width: 100%; padding: 5px 8px; font-size: 11px; text-align: left; background: #fff;
+  border: 1px solid #cbd5e1; border-radius: 4px; color: #334155; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.type-dropdown-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
+.type-dropdown-btn.active { background: #eff6ff; border-color: #3b82f6; color: #1d4ed8; font-weight: 600; }
+.type-dropdown-panel {
+  display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 180px; max-height: 280px;
+  background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  z-index: 100; overflow-y: auto; padding: 4px 0;
+}
+.type-dropdown-panel.open { display: block; }
+.type-dropdown-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 11px; color: #64748b; border-bottom: 1px solid #f1f5f9; }
+.type-dropdown-clear { border: none; background: none; color: #2563eb; cursor: pointer; font-size: 11px; padding: 0; }
+.type-dropdown-list { padding: 4px 0; }
+.type-dropdown-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; font-size: 12px; color: #334155; cursor: pointer; }
+.type-dropdown-item:hover { background: #f1f5f9; }
+.type-dropdown-item.selected { background: #eff6ff; color: #1d4ed8; font-weight: 500; }
+.type-chk { width: 14px; text-align: center; color: #2563eb; font-weight: bold; }
+.type-dropdown-foot { padding: 8px 10px; border-top: 1px solid #f1f5f9; background: #f8fafc; }
+.type-add-row { display: flex; gap: 4px; margin-bottom: 4px; }
+.type-add-input { flex: 1; padding: 4px 6px; font-size: 11px; border: 1px solid #cbd5e1; border-radius: 3px; }
+.type-add-btn { padding: 2px 8px; font-size: 12px; background: #2563eb; color: #fff; border: none; border-radius: 3px; cursor: pointer; }
+.type-del-btn { width: 100%; padding: 4px; font-size: 11px; color: #dc2626; background: #fee2e2; border: 1px solid #fecaca; border-radius: 3px; cursor: pointer; }
 
-  /* ---------- 信息栏（含操作区） ---------- */
-  #info-panel { height: 52%; overflow-y: auto; padding: 10px 14px 14px; background: #fbfcfd; }
-  #info-panel .placeholder { color: #aab; font-size: 12px; text-align: center; margin-top: 30px; }
-  #info-panel h4 { font-size: 12px; color: #33415c; margin: 10px 0 6px; }
-  #info-name { font-size: 14px; font-weight: bold; word-break: break-all; }
-  #info-sub { font-size: 11px; color: #777; margin: 3px 0 8px; }
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; font-size: 11px; }
-  .meta-grid b { color: #889; font-weight: normal; }
-  .meta-grid .wide { grid-column: 1 / -1; }
-  details.attr-group { margin-bottom: 4px; font-size: 11px; }
-  details.attr-group summary { cursor: pointer; color: #2b5fd9; padding: 3px 0; user-select: none; }
-  details.attr-group summary .cnt { color: #999; font-size: 10px; }
-  table.attrs { width: 100%; border-collapse: collapse; font-size: 11px; }
-  table.attrs td { border-bottom: 1px solid #eef1f4; padding: 3px 4px; vertical-align: top; }
-  table.attrs td.k { color: #667; width: 45%; }
-  table.attrs td.v { word-break: break-all; }
-  .op-box { border-top: 1px solid #e5e9ef; margin-top: 12px; padding-top: 10px; }
-  .op-row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-  .op-row input.note { flex: 1; min-width: 100px; padding: 5px 8px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 11px; }
-  ul.versions { list-style: none; font-size: 11px; }
-  ul.versions li { padding: 3px 0; border-bottom: 1px dashed #eef1f4; }
-  ul.versions .v-time { color: #999; font-size: 10px; margin-left: 6px; }
+#model-list { flex: 1; overflow-y: auto; list-style: none; min-height: 120px; border-bottom: 1px solid #e2e8f0; }
+#model-list li {
+  padding: 10px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s ease;
+}
+#model-list li:hover { background: #f8fafc; }
+#model-list li.active { background: #eff6ff; border-left: 3px solid #2563eb; padding-left: 11px; }
+#model-list .name { font-size: 13px; font-weight: 600; color: #0f172a; margin-bottom: 4px; }
+#model-list .sub { font-size: 11px; color: #64748b; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.source-tag { font-size: 10px; padding: 1px 4px; border-radius: 3px; font-weight: 500; }
+.source-gim { background: #dbeafe; color: #1e40af; }
+.source-manual { background: #f1f5f9; color: #475569; }
 
-  /* ---------- 右侧主区域 ---------- */
-  #main { flex: 1; display: flex; flex-direction: column; padding: 14px 20px 16px; min-width: 0; }
-  .placeholder { color: #aab; text-align: center; margin-top: 18vh; font-size: 15px; }
-  #detail { display: none; flex: 1; flex-direction: column; min-height: 0; }
-  #detail.show { display: flex; }
+#list-bar { padding: 6px 14px; display: flex; justify-content: space-between; align-items: center; background: #f8fafc; font-size: 11px; color: #64748b; border-bottom: 1px solid #e2e8f0; }
+.pager { display: flex; align-items: center; gap: 4px; }
+.pager button { padding: 2px 8px; font-size: 11px; }
 
-  /* TAB */
-  .tabs { display: flex; gap: 4px; margin-bottom: -1px; }
-  .tab-btn {
-    padding: 8px 22px; border: 1px solid #d5dae2; border-bottom: none;
-    border-radius: 6px 6px 0 0; background: #eceff3; cursor: pointer; font-size: 13px; color: #556;
-  }
-  .tab-btn.active { background: #fff; color: #2b5fd9; font-weight: bold; border-color: #c8ceda; }
-  .tab-body { flex: 1; background: #fff; border: 1px solid #d5dae2; border-radius: 0 6px 6px 6px; padding: 12px 14px; display: none; flex-direction: column; min-height: 0; }
-  .tab-body.active { display: flex; }
-  .tab-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
-  .tab-head .title { font-size: 13px; color: #33415c; font-weight: bold; }
-  .hint { font-size: 11px; color: #99a; margin-left: auto; }
-  #pc-count { width: 92px; padding: 3px 8px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 12px; }
-  .meta-grid select, .meta-grid input {
-    width: 100%; padding: 3px 6px; border: 1px solid #c8ceda; border-radius: 4px;
-    font-size: 11px; background: #fff; color: #222;
-  }
+#info-panel { flex: 1; overflow-y: auto; padding: 14px; background: #fff; font-size: 12px; }
+#info-panel .placeholder { color: #94a3b8; text-align: center; margin-top: 40px; }
+#info-name { font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 2px; }
+#info-sub { font-size: 11px; color: #64748b; margin-bottom: 10px; }
+#info-panel h4 { font-size: 12px; font-weight: 600; color: #334155; margin: 12px 0 6px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9; padding-bottom: 4px; }
+.meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-size: 11px; color: #475569; margin-bottom: 10px; }
+.meta-grid .wide { grid-column: 1 / -1; }
+.meta-grid b { color: #1e293b; }
+.meta-grid select, .meta-grid input { margin-top: 2px; padding: 3px 6px; font-size: 11px; }
 
-  canvas.view3d { flex: 1; width: 100%; border: 1px solid #eee; border-radius: 4px; background: #10141c; cursor: grab; display: block; min-height: 0; }
-  canvas.view3d:active { cursor: grabbing; }
+.attrs { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 8px; }
+.attrs td { padding: 4px 6px; border-bottom: 1px solid #f8fafc; }
+.attrs .k { color: #64748b; width: 45%; }
+.attrs .v { color: #0f172a; word-break: break-all; }
+.attr-group summary { cursor: pointer; font-weight: 600; color: #334155; font-size: 11px; padding: 4px 0; }
 
-  /* ---------- 弹窗 ---------- */
-  dialog {
-    border: 1px solid #d5dae2; border-radius: 8px; padding: 20px 22px;
-    width: 380px; box-shadow: 0 8px 30px rgba(0,0,0,.15);
-  }
-  dialog::backdrop { background: rgba(30,40,60,.35); }
-  dialog h3 { margin-bottom: 14px; font-size: 15px; }
-  dialog label { display: block; font-size: 12px; color: #667; margin: 10px 0 4px; }
-  dialog input, dialog select, dialog textarea {
-    width: 100%; padding: 7px 9px; border: 1px solid #c8ceda; border-radius: 4px; font-size: 13px;
-  }
-  dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.stl-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.stl-item { padding: 6px 8px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 11px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.stl-item:hover { background: #eff6ff; border-color: #bfdbfe; }
+.stl-item.active { background: #fef3c7; border-color: #f59e0b; color: #b45309; font-weight: 600; }
+.stl-faces { font-size: 10px; color: #94a3b8; }
 
-  #toast {
-    position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
-    background: #333; color: #fff; padding: 8px 18px; border-radius: 20px;
-    font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 99;
-  }
-  #toast.show { opacity: .92; }
+.op-box { margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; }
+.export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 8px 0; }
+.export-btn {
+  padding: 6px 8px; font-size: 11px; text-align: center; border-radius: 4px;
+  background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; cursor: pointer;
+  transition: all 0.15s ease; text-decoration: none; display: flex; align-items: center; justify-content: center; gap: 4px;
+}
+.export-btn:hover { background: #f1f5f9; color: #0f172a; border-color: #94a3b8; }
+.export-btn.accent { background: #eff6ff; border-color: #3b82f6; color: #1d4ed8; font-weight: 600; }
+.export-btn.accent:hover { background: #2563eb; color: #fff; }
 
-  /* ---------- 导入遮罩（菊花 + 计时） ---------- */
-  #import-mask {
-    position: fixed; inset: 0; background: rgba(20,28,40,.45);
-    display: none; z-index: 98; align-items: center; justify-content: center;
-  }
-  #import-mask.show { display: flex; }
-  .loading-box {
-    background: #fff; border-radius: 10px; padding: 26px 36px; text-align: center;
-    box-shadow: 0 8px 30px rgba(0,0,0,.25);
-  }
-  .spinner {
-    width: 38px; height: 38px; border: 4px solid #e3e8f0; border-top-color: #2b5fd9;
-    border-radius: 50%; margin: 0 auto 12px; animation: spin 1s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  #load-text { font-size: 13px; color: #33415c; }
-  #load-sub { font-size: 11px; color: #99a; margin-top: 5px; }
+.versions { list-style: none; font-size: 11px; color: #64748b; margin-top: 6px; }
+.versions li { padding: 4px 0; border-bottom: 1px dashed #f1f5f9; display: flex; justify-content: space-between; }
+.v-time { color: #94a3b8; font-size: 10px; }
+
+#main { flex: 1; background: #0f172a; position: relative; display: flex; flex-direction: column; }
+#main > .placeholder { position: absolute; top: 45%; left: 50%; transform: translate(-50%, -50%); color: #64748b; font-size: 14px; }
+#detail { display: none; height: 100%; flex-direction: column; }
+#detail.show { display: flex; }
+.tabs { display: flex; background: #1e293b; padding: 0 16px; border-bottom: 1px solid #334155; }
+.tab-btn {
+  padding: 10px 16px; font-size: 12px; color: #94a3b8; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer;
+}
+.tab-btn:hover { color: #f8fafc; }
+.tab-btn.active { color: #38bdf8; border-bottom-color: #38bdf8; font-weight: 600; }
+
+.tab-body { display: none; flex: 1; position: relative; flex-direction: column; }
+.tab-body.active { display: flex; }
+.tab-head {
+  padding: 8px 16px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 8px; font-size: 12px; color: #cbd5e1;
+}
+.tab-head .title { font-weight: 600; color: #f8fafc; margin-right: 6px; }
+.tab-head .hint { margin-left: auto; font-size: 11px; color: #64748b; }
+.view3d { flex: 1; width: 100%; height: 100%; display: block; }
+
+.mode-toggle { display: inline-flex; gap: 2px; background: rgba(0,0,0,0.3); padding: 2px; border-radius: 4px; border: 1px solid #334155; }
+.mode-toggle .mode-btn { border: none; background: transparent; color: #94a3b8; padding: 3px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; }
+.mode-toggle .mode-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
+.mode-toggle .mode-btn.active { background: #0284c7; color: #fff; font-weight: bold; }
+
+dialog {
+  margin: auto; border-radius: 8px; background: #fff; color: #0f172a; border: 1px solid #cbd5e1; padding: 20px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1); max-width: 480px; width: 90%;
+}
+dialog::backdrop { background: rgba(15, 23, 42, 0.65); backdrop-filter: blur(2px); }
+dialog h3 { font-size: 15px; margin-bottom: 12px; color: #0f172a; }
+dialog label { display: block; font-size: 11px; font-weight: 600; color: #475569; margin: 8px 0 3px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+
+#toast {
+  position: fixed; bottom: 20px; right: 20px; padding: 8px 16px; background: #0f172a; color: #f8fafc; border: 1px solid #334155; border-radius: 6px; font-size: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); opacity: 0; pointer-events: none; transition: opacity 0.2s ease; z-index: 1000;
+}
+#toast.show { opacity: 1; }
+
+#imp-overlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.7); display: none; align-items: center; justify-content: center; z-index: 999;
+}
+#imp-overlay.show { display: flex; }
+.imp-box { background: #fff; border-radius: 8px; padding: 24px 32px; text-align: center; }
 </style>
 </head>
 <body>
+<div id="debug-log-screen" style="display:none" style="position:fixed;top:0;left:0;right:0;max-height:200px;overflow:auto;background:darkred;color:white;z-index:999999;font-size:12px;padding:8px;"></div>
+<script>
+function showErr(msg) {
+  var b = document.getElementById("debug-log-screen");
+  if (b) b.innerHTML += "<div>" + String(msg) + "</div>";
+}
+window.onerror = function(msg, url, line, col, err) { showErr("ONERROR: " + msg + " at " + line + ":" + col); };
+window.onunhandledrejection = function(e) { showErr("UNHANDLED REJECTION: " + e.reason); };
+</script>
 
-<!-- 左栏：工具栏 + 列表 + 信息栏(属性/操作/版本) -->
 <aside id="sidebar">
   <header>
     <h1>⚡ EGLibrary 模型库</h1>
     <div class="toolbar">
       <button class="primary" id="btn-new">＋ 新建</button>
       <button id="btn-import">⇪ 导入 GIM/ZIP</button>
-      <button id="btn-cats" title="管理模型大类">分类</button>
-      <input type="file" id="import-file" accept=".zip,.gim" hidden>
+      <input type="file" id="imp-file-hidden" accept=".zip,.gim" hidden>
     </div>
     <input id="search" placeholder="搜索名称 / 编码 / 描述，回车查询">
   </header>
-  <div class="filters">
-    <div id="dd-domain" class="dd"></div>
-    <div id="dd-etype" class="dd"></div>
-    <div id="dd-voltage" class="dd"></div>
+  <div class="filters-row">
+    <div class="type-dropdown-wrap">
+      <button type="button" id="btn-filter-category" class="type-dropdown-btn">大类 (全部)</button>
+      <div id="panel-filter-category" class="type-dropdown-panel"></div>
+    </div>
+    <div class="type-dropdown-wrap">
+      <button type="button" id="btn-filter-equipment" class="type-dropdown-btn">设备类型 (全部)</button>
+      <div id="panel-filter-equipment" class="type-dropdown-panel"></div>
+    </div>
+    <div class="type-dropdown-wrap">
+      <button type="button" id="btn-filter-voltage" class="type-dropdown-btn">电压等级</button>
+      <div id="panel-filter-voltage" class="type-dropdown-panel"></div>
+    </div>
   </div>
   <ul id="model-list"></ul>
   <div id="list-bar">
-    <div id="list-count"></div>
     <div class="pager">
       <button id="pg-prev">‹</button>
       <span id="pg-info">1/1</span>
@@ -217,7 +206,6 @@
   </div>
 </aside>
 
-<!-- 右侧主区域：TAB（三维预览 / 点云展示） -->
 <main id="main">
   <p class="placeholder" id="placeholder">← 从左侧选择一个模型</p>
   <div id="detail">
@@ -228,13 +216,21 @@
 
     <div class="tab-body active" id="tab-wire">
       <div class="tab-head">
-        <span class="title">模型线架 · 实时三维</span>
+        <span class="title">三维视图</span>
+        <span class="mode-toggle">
+          <button class="mode-btn active" data-mode="shaded">实体</button>
+          <button class="mode-btn" data-mode="wireframe">线框</button>
+          <button class="mode-btn" data-mode="hybrid">混合</button>
+        </span>
+        <span style="border-left:1px solid #334155;height:16px;margin:0 4px;vertical-align:middle;display:inline-block"></span>
         <button class="view-btn active" data-view="iso">等轴测</button>
         <button class="view-btn" data-view="front">正视</button>
         <button class="view-btn" data-view="side">侧视</button>
         <button class="view-btn" data-view="top">俯视</button>
-        <button id="btn-wire-reset">重置</button>
-        <span class="hint">拖拽旋转 · 右键/Shift拖拽平移 · 滚轮缩放 · 点击左侧 STL 部件高亮</span>
+        <button id="btn-wire-reset">重置视角</button>
+        <span style="border-left:1px solid #334155;height:16px;margin:0 4px;vertical-align:middle;display:inline-block"></span>
+        <button id="btn-quick-export-mesh" title="导出 OBJ / STL 格式">⇩ 导出 3D 模型</button>
+        <span class="hint">拖拽旋转 · 右键/Shift拖拽平移 · 滚轮缩放 · 点击部件高亮</span>
       </div>
       <canvas id="wire-canvas" class="view3d"></canvas>
     </div>
@@ -242,10 +238,12 @@
     <div class="tab-body" id="tab-pc">
       <div class="tab-head">
         <span class="title">点云三维展示</span>
-        <input id="pc-count" type="number" min="1" max="100000" value="10000" title="采样点数（1-100000）">
-        <button class="primary" id="btn-pointcloud">采样</button>
+        <input id="pc-count" type="number" min="1" max="100000" value="2000" title="采样点数" style="width:75px">
+        <button class="primary" id="btn-pointcloud">采样预览</button>
         <button id="btn-pc-reset">重置视角</button>
-        <span class="hint">自定义点数 · 用于模型预训练 · 拖拽旋转 · 滚轮缩放</span>
+        <span style="border-left:1px solid #334155;height:16px;margin:0 4px;vertical-align:middle;display:inline-block"></span>
+        <button class="primary" id="btn-quick-export-pc" style="background:#059669;border-color:#10b981">⚡ 导出 AI 训练点云</button>
+        <span class="hint">支持带语义标签、高斯加噪与姿态扰动增强</span>
       </div>
       <canvas id="pointcloud-canvas" class="view3d"></canvas>
     </div>
@@ -277,66 +275,133 @@
   </div>
 </dialog>
 
-<!-- 分类管理弹窗：电力领域 × 设备类型（双维度平级） -->
-<dialog id="dlg-cats">
-  <h3>分类管理</h3>
-  <label>电力领域</label>
-  <ul class="versions" id="cat-list"></ul>
-  <div class="toolbar">
-    <input id="c-name" placeholder="新增领域，如：直流" style="flex:1">
-    <button class="primary" id="c-add">添加</button>
+<!-- 导入弹窗 -->
+<dialog id="dlg-import">
+  <h3>导入 GIM / ZIP 模型文件</h3>
+  <form id="imp-form">
+    <label>选择文件 (.gim / .zip) *</label>
+    <input type="file" id="imp-file" accept=".gim,.zip" required>
+    <label>指定模型名称 (可选)</label>
+    <input id="imp-name" placeholder="留空使用原始文件名">
+    <label>指定电压等级 (可选)</label>
+    <input id="imp-voltage" placeholder="如：110kV">
+    <div class="dialog-actions">
+      <button type="button" id="imp-cancel">取消</button>
+      <button type="submit" class="primary" id="imp-submit">开始解析并导入</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- AI 训练点云生成配置弹窗 -->
+<dialog id="dlg-export-pc">
+  <h3>⚡ AI 训练点云数据集生成器</h3>
+  <label>点云文件格式</label>
+  <select id="exp-pc-fmt">
+    <option value="las">ASPRS LAS 1.2 (*.las - 带 16-bit RGB 与 Classification 语义标签)</option>
+    <option value="txt">标准文本点云 (*.txt - X Y Z R G B Classification Label)</option>
+  </select>
+  <label>采样点数</label>
+  <select id="exp-pc-quality">
+    <option value="low">低密度 (500 点)</option>
+    <option value="medium" selected>中密度 (2000 点 - 推荐)</option>
+    <option value="high">高密度 (5000 点)</option>
+    <option value="custom">自定义点数...</option>
+  </select>
+  <div id="exp-pc-custom-row" style="display:none;margin-top:6px">
+    <input type="number" id="exp-pc-count" min="1" max="100000" value="10000" placeholder="1-100000">
   </div>
-  <label>设备类型</label>
-  <ul class="versions" id="et-list"></ul>
-  <div class="toolbar">
-    <input id="et-name" placeholder="新增设备类型，如：避雷器" style="flex:1">
-    <button class="primary" id="et-add">添加</button>
-  </div>
-  <div class="dialog-actions">
-    <button id="c-close">关闭</button>
+  <label style="margin-top:8px">高斯测距噪声扰动 (模拟雷达传感器误差)</label>
+  <select id="exp-pc-noise">
+    <option value="0.0">无噪声 (真实表面采样)</option>
+    <option value="0.01">轻度噪声 (σ = 0.01m)</option>
+    <option value="0.03">中度噪声 (σ = 0.03m)</option>
+    <option value="0.05">重度噪声 (σ = 0.05m)</option>
+  </select>
+  <label style="margin-top:10px;display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">
+    <input type="checkbox" id="exp-pc-augment" style="width:auto"> 开启 3D 空间随机姿态扰动增强 (Yaw 0-360° / Pitch ±5° / Roll ±5°)
+  </label>
+  <div class="dialog-actions" style="margin-top:16px">
+    <button type="button" id="exp-pc-cancel">取消</button>
+    <button type="button" class="primary" id="exp-pc-confirm" style="background:#059669;border-color:#10b981">立即生成并下载</button>
   </div>
 </dialog>
 
 <div id="toast"></div>
-
-<!-- 导入遮罩 -->
-<div id="import-mask">
-  <div class="loading-box">
-    <div class="spinner"></div>
-    <div id="load-text">正在导入模型包…</div>
-    <div id="load-sub"></div>
-  </div>
-</div>
+<div id="imp-overlay"><div class="imp-box"><p id="imp-progress-text">正在上传并解析…</p><p id="imp-percent" style="font-size:24px;font-weight:700;color:#2563eb;margin:8px 0">0%</p><p id="imp-timer" style="font-size:11px;color:#94a3b8"></p></div></div>
 
 <script>
-"use strict";
 const $ = (id) => document.getElementById(id);
-let currentId = null;
-let currentModel = null;
 
-const TYPE_LABELS = { device: "设备", material: "材料", civil: "构筑物", system: "系统", line: "线路", other: "其他" };
-const STAGE_LABELS = { common: "通用库", product: "产品库", finished: "成品库", custom: "自定义" };
-const SOURCE_LABELS = { manual: "手工", gim: "GIM 导入", zip: "ZIP 载体" };
+function downloadFile(url, filename) {
+  const a = document.createElement("a");
+  a.href = url;
+  if (filename) a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { if (a.parentNode) a.parentNode.removeChild(a); }, 300);
+}
+
+function openModalDialog(id) {
+  const d = typeof id === "string" ? document.getElementById(id) : id;
+  if (!d) return;
+  if (typeof d.showModal === "function") {
+    try { d.showModal(); return; } catch(e) {}
+  }
+  d.setAttribute("open", "true");
+  d.style.display = "block";
+}
+
+function closeModalDialog(id) {
+  const d = typeof id === "string" ? document.getElementById(id) : id;
+  if (!d) return;
+  if (typeof d.close === "function") {
+    try { d.close(); return; } catch(e) {}
+  }
+  d.removeAttribute("open");
+  d.style.display = "none";
+}
+
+const TYPE_LABELS = {
+  device: "设备", material: "材料", civil: "构筑物",
+  system: "系统", line: "线路", other: "其他",
+};
+const STAGE_LABELS = {
+  preliminary: "可研/初设", construction: "施工图", as_built: "竣工",
+};
 const CATEGORY_LABELS = {
-  design: "设计参数", design_frozen: "设计冻结参数", product: "产品参数",
-  construction: "施工参数", test: "测试参数", operation: "运检参数",
+  design: "设计参数", design_frozen: "设计冻结参数",
+  product: "产品参数", construction: "施工参数",
+  test: "测试参数", operation: "运检参数",
+};
+const SOURCE_LABELS = {
+  manual: "手工", gim: "GIM", zip: "ZIP",
 };
 
-function toast(msg) {
+let currentId = null;
+let currentModel = null;
+let currentPage = 1;
+let currentType = "";
+let catTree = [];
+let equipmentTypes = [];
+let voltageOptions = [];
+let selectedCategories = [];
+let selectedEquipmentTypes = [];
+let selectedVoltageLevel = "";
+
+function toast(msg, duration = 2500) {
   const t = $("toast");
   t.textContent = msg;
   t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 2200);
+  setTimeout(() => t.classList.remove("show"), duration);
 }
 
-async function api(path, options) {
-  const resp = await fetch(path, options);
-  if (!resp.ok) {
-    let detail = resp.statusText;
-    try { detail = (await resp.json()).detail || detail; } catch (e) { /* 忽略解析失败 */ }
-    throw new Error(detail);
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "请求失败");
   }
-  return resp;
+  return res;
 }
 
 function escapeHtml(s) {
@@ -344,8 +409,10 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// ---------- 通用 3D 轨道控制器（z-up，拖拽旋转 / 右键或Shift平移 / 滚轮缩放） ----------
-const ISO_PITCH = Math.asin(1 / Math.sqrt(3));   // 经典等轴测俯角 ≈35.26°
+// ============================================================================
+// 通用 3D 轨道控制器（z-up，支持 Canvas 2D 点云展示）
+// ============================================================================
+const ISO_PITCH = Math.asin(1 / Math.sqrt(3));
 const DEFAULT_VIEW = { yaw: Math.PI / 4, pitch: ISO_PITCH };
 
 function makeOrbit(canvas) {
@@ -357,16 +424,16 @@ function makeOrbit(canvas) {
     setView(name) {
       if (name === "front") Object.assign(st, { yaw: 0, pitch: 0 });
       else if (name === "side") Object.assign(st, { yaw: -Math.PI / 2, pitch: 0 });
-      else if (name === "top") Object.assign(st, { yaw: 0, pitch: Math.PI / 2 });
+      else if (name === "top") Object.assign(st, { yaw: 0, pitch: Math.PI / 2 - 0.001 });
       else Object.assign(st, DEFAULT_VIEW);
     },
     project(x, y, z) {
-      // 标准轨道相机：方位角 yaw + 俯仰 pitch（0=水平看，π/2=顶视），正交投影（SVG y 向下）
       const cy = Math.cos(st.yaw), sy = Math.sin(st.yaw);
       const cp = Math.cos(st.pitch), sp = Math.sin(st.pitch);
       const sx = x * cy - y * sy;
-      const syUp = z * cp - x * sy * sp - y * cy * sp;   // 屏幕竖直分量（向上为正）
-      return [sx, -syUp];
+      const syUp = z * cp - x * sy * sp - y * cy * sp;
+      const szDepth = z * sp + (x * sy + y * cy) * cp;
+      return [sx, -syUp, szDepth];
     },
     fit(points, pad = 30) {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -397,7 +464,7 @@ function makeOrbit(canvas) {
       st.panX += dx; st.panY += dy;
     } else {
       st.yaw += dx * 0.01;
-      st.pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, st.pitch + dy * 0.01));
+      st.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, st.pitch + dy * 0.01));
     }
     handle.draw();
   });
@@ -420,154 +487,474 @@ function resizeCanvas(cv) {
   }
 }
 
+// ============================================================================
+// 原生 WebGL 硬件加速 3D 渲染引擎
+// ============================================================================
 
-// ---------- TAB 切换 ----------
-document.querySelectorAll(".tab-btn").forEach((btn) => {
-  btn.onclick = () => {
-    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
-    document.querySelectorAll(".tab-body").forEach((b) => b.classList.toggle("active", b.id === btn.dataset.tab));
-    if (btn.dataset.tab === "tab-wire") { resizeCanvas($("wire-canvas")); wireOrbit.draw(); }
-    if (btn.dataset.tab === "tab-pc") { resizeCanvas($("pointcloud-canvas")); pcOrbit.draw(); }
-  };
-});
-
-// ---------- 线架实时 3D ----------
-let wireSegments = [];   // [{x1,y1,z1,x2,y2,z2,color}]
-let stlParts = [];       // STL 部件 [{path,name,faces,edges,active}]
-const wireOrbit = makeOrbit($("wire-canvas"));
-const wireViewBtns = document.querySelectorAll("#tab-wire .view-btn");
-
-wireOrbit.onDraw = function drawWire() {
-  const cv = $("wire-canvas"), ctx = cv.getContext("2d");
-  ctx.clearRect(0, 0, cv.width, cv.height);
-  if (!currentModel) return;
-
-  const pts2d = [];
-  const projected = wireSegments.map((s) => {
-    const a = wireOrbit.project(s.x1, s.y1, s.z1);
-    const b = wireOrbit.project(s.x2, s.y2, s.z2);
-    pts2d.push(a, b);
-    return { a, b, color: s.color };
-  });
-  const hasStl = stlParts.some((p) => p.edges.length);
-  if (!projected.length && !hasStl) return;
-
-  // STL 部件投影（按高亮状态分样式）
-  const stlDraw = [];
-  for (const part of stlParts) {
-    for (const s of part.edges) {
-      const a = wireOrbit.project(s.x1, s.y1, s.z1);
-      const b = wireOrbit.project(s.x2, s.y2, s.z2);
-      pts2d.push(a, b);
-      stlDraw.push({ a, b, part });
-    }
+const Mat4 = {
+  create() { return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]); },
+  perspective(out, fovy, aspect, near, far) {
+    const f = 1.0 / Math.tan(fovy / 2), nf = 1 / (near - far);
+    out[0] = f / aspect; out[1] = 0; out[2] = 0; out[3] = 0;
+    out[4] = 0; out[5] = f; out[6] = 0; out[7] = 0;
+    out[8] = 0; out[9] = 0; out[10] = (far + near) * nf; out[11] = -1;
+    out[12] = 0; out[13] = 0; out[14] = (2 * far * near) * nf; out[15] = 0;
+    return out;
+  },
+  lookAt(out, eye, center, up) {
+    let z0 = eye[0] - center[0], z1 = eye[1] - center[1], z2 = eye[2] - center[2];
+    let len = 1 / (Math.hypot(z0, z1, z2) || 1); z0 *= len; z1 *= len; z2 *= len;
+    let x0 = up[1]*z2 - up[2]*z1, x1 = up[2]*z0 - up[0]*z2, x2 = up[0]*z1 - up[1]*z0;
+    len = Math.hypot(x0, x1, x2);
+    if (!len) { x0 = 0; x1 = 0; x2 = 0; } else { len = 1 / len; x0 *= len; x1 *= len; x2 *= len; }
+    let y0 = z1*x2 - z2*x1, y1 = z2*x0 - z0*x2, y2 = z0*x1 - z1*x0;
+    out[0] = x0; out[1] = y0; out[2] = z0; out[3] = 0;
+    out[4] = x1; out[5] = y1; out[6] = z1; out[7] = 0;
+    out[8] = x2; out[9] = y2; out[10] = z2; out[11] = 0;
+    out[12] = -(x0*eye[0] + x1*eye[1] + x2*eye[2]);
+    out[13] = -(y0*eye[0] + y1*eye[1] + y2*eye[2]);
+    out[14] = -(z0*eye[0] + z1*eye[1] + z2*eye[2]);
+    out[15] = 1;
+    return out;
+  },
+  multiply(out, a, b) {
+    let a00 = a[0], a01 = a[1], a02 = a[2], a03 = a[3];
+    let a10 = a[4], a11 = a[5], a12 = a[6], a13 = a[7];
+    let a20 = a[8], a21 = a[9], a22 = a[10], a23 = a[11];
+    let a30 = a[12], a31 = a[13], a32 = a[14], a33 = a[15];
+    let b0 = b[0], b1 = b[1], b2 = b[2], b3 = b[3];
+    out[0] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[1] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[2] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[3] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    b0 = b[4]; b1 = b[5]; b2 = b[6]; b3 = b[7];
+    out[4] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[5] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[6] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[7] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    b0 = b[8]; b1 = b[9]; b2 = b[10]; b3 = b[11];
+    out[8] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[9] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[10] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[11] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    b0 = b[12]; b1 = b[13]; b2 = b[14]; b3 = b[15];
+    out[12] = b0*a00 + b1*a10 + b2*a20 + b3*a30;
+    out[13] = b0*a01 + b1*a11 + b2*a21 + b3*a31;
+    out[14] = b0*a02 + b1*a12 + b2*a22 + b3*a32;
+    out[15] = b0*a03 + b1*a13 + b2*a23 + b3*a33;
+    return out;
   }
-
- const { s: k, ox, oy } = wireOrbit.fit(pts2d);
-
- // 地面网格（z=0 平面，范围随模型）
-  let half = 100;
-  let zMin = Infinity;
-  for (const seg of wireSegments) {
-    half = Math.max(half, Math.abs(seg.x1), Math.abs(seg.y1), Math.abs(seg.x2), Math.abs(seg.y2));
-    if (seg.z1 < zMin) zMin = seg.z1;
-    if (seg.z2 < zMin) zMin = seg.z2;
-  }
-  for (const part of stlParts) {
-    for (const s of part.edges) {
-      half = Math.max(half, Math.abs(s.x1), Math.abs(s.y1), Math.abs(s.x2), Math.abs(s.y2));
-      if (s.z1 < zMin) zMin = s.z1;
-      if (s.z2 < zMin) zMin = s.z2;
-    }
-  }
-  half = (half || 100) * 1.25;
-  const gridZ = zMin !== Infinity ? zMin : 0;
-  drawGrid(ctx, wireOrbit, half, half / 5, ox, oy, k, gridZ);
-
-  ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.9;
-  for (const seg of projected) {
-    ctx.strokeStyle = seg.color;
-    ctx.beginPath();
-    ctx.moveTo(ox + seg.a[0] * k, oy + seg.a[1] * k);
-    ctx.lineTo(ox + seg.b[0] * k, oy + seg.b[1] * k);
-    ctx.stroke();
-  }
-  // STL 部件：有高亮时其余变暗，高亮件亮黄加粗
-  const anyActive = stlParts.some((p) => p.active);
-  for (const seg of stlDraw) {
-    if (anyActive) {
-      if (!seg.part.active) {
-        ctx.strokeStyle = "rgba(110,220,220,0.10)";
-        ctx.lineWidth = 1;
-      } else {
-        ctx.strokeStyle = "#ffd54a";
-        ctx.lineWidth = 1.6;
-      }
-    } else {
-      ctx.strokeStyle = "rgba(110,220,220,0.45)";
-      ctx.lineWidth = 1;
-    }
-    ctx.beginPath();
-    ctx.moveTo(ox + seg.a[0] * k, oy + seg.a[1] * k);
-    ctx.lineTo(ox + seg.b[0] * k, oy + seg.b[1] * k);
-    ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-  ctx.lineWidth = 1;
-  ctx.fillStyle = "#8aa";
-  ctx.font = "11px sans-serif";
-  ctx.fillText(`${wireSegments.length} edges${stlParts.length ? " + STL×" + stlParts.length : ""} · yaw ${Math.round(wireOrbit.state.yaw * 180 / Math.PI)}° pitch ${Math.round(wireOrbit.state.pitch * 180 / Math.PI)}°`, 10, cv.height - 10);
-  drawAxesIndicator(ctx, wireOrbit, cv);
 };
 
-function primToSegments(prim) {
-  const color = prim.color || "#9db4d0";
-  const [px, py, pz] = prim.position || [0, 0, 0];
-  const segs = [];
-  const P = prim.params || {};
-  const f = (v, d) => { const n = parseFloat(v); return isNaN(n) ? d : n; };
-  if (prim.type === "line") {
-    const a = P.start || [0, 0, 0], b = P.end || [0, 0, 0];
-    segs.push({ x1: a[0] + px, y1: a[1] + py, z1: a[2] + pz, x2: b[0] + px, y2: b[1] + py, z2: b[2] + pz, color });
-    return segs;
+const VS_SOURCE = "attribute vec3 a_position; attribute vec3 a_normal; attribute vec4 a_color; uniform mat4 u_mvpMatrix; uniform mat4 u_viewMatrix; uniform vec3 u_lightDir; varying vec4 v_color; varying vec3 v_normal; varying vec3 v_lightDir; void main() { gl_Position = u_mvpMatrix * vec4(a_position, 1.0); v_normal = normalize(mat3(u_viewMatrix) * a_normal); v_lightDir = normalize(mat3(u_viewMatrix) * u_lightDir); v_color = a_color; }";
+const FS_SOURCE = "precision mediump float; varying vec4 v_color; varying vec3 v_normal; varying vec3 v_lightDir; void main() { vec3 n = normalize(v_normal); vec3 l = normalize(v_lightDir); float diff = max(abs(dot(n, l)), 0.20); float intensity = 0.40 + 0.60 * diff; gl_FragColor = vec4(v_color.rgb * intensity, v_color.a); }";
+const VS_LINE_SOURCE = "attribute vec3 a_position; attribute vec4 a_color; uniform mat4 u_mvpMatrix; varying vec4 v_color; void main() { gl_Position = u_mvpMatrix * vec4(a_position, 1.0); v_color = a_color; }";
+const FS_LINE_SOURCE = "precision mediump float; varying vec4 v_color; void main() { gl_FragColor = v_color; }";
+
+function createGLProgram(gl, vsSrc, fsSrc) {
+  function compile(src, type) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    return s;
   }
-  // 其余图元画包围盒 12 条棱
-  let ex = 50, ey = 50, ez = 50;
-  if (prim.type === "box") {
-    ex = f(P.width, 100) / 2; ey = f(P.depth, 100) / 2; ez = f(P.height, 100) / 2;
-  } else if (prim.type === "cylinder" || prim.type === "cone") {
-    ex = ey = f(P.radius, 50); ez = f(P.height, 200) / 2;
-  } else if (prim.type === "sphere") {
-    ex = ey = ez = f(P.radius, 50);
-  } else if (prim.type === "torus") {
-    ex = ey = ez = f(P.major_radius, 80) + f(P.minor_radius, 20);
-  }
-  const c = [
-    [px - ex, py - ey, pz - ez], [px + ex, py - ey, pz - ez],
-    [px + ex, py + ey, pz - ez], [px - ex, py + ey, pz - ez],
-    [px - ex, py - ey, pz + ez], [px + ex, py - ey, pz + ez],
-    [px + ex, py + ey, pz + ez], [px - ex, py + ey, pz + ez],
-  ];
-  const E = [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-  for (const [i, j] of E) {
-    segs.push({ x1: c[i][0], y1: c[i][1], z1: c[i][2], x2: c[j][0], y2: c[j][1], z2: c[j][2], color });
-  }
-  return segs;
+  const vs = compile(vsSrc, gl.VERTEX_SHADER);
+  const fs = compile(fsSrc, gl.FRAGMENT_SHADER);
+  const prog = gl.createProgram();
+  gl.attachShader(prog, vs);
+  gl.attachShader(prog, fs);
+  gl.linkProgram(prog);
+  return prog;
 }
+
+function generateLineSolidMesh(x1, y1, z1, x2, y2, z2, radius = 50, color = [0.52, 0.62, 0.74, 1.0]) {
+  const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+  const len = Math.hypot(dx, dy, dz) || 1;
+  const dir = [dx / len, dy / len, dz / len];
+
+  const r = Math.min(radius, Math.max(6, len * 0.03));
+
+  let up = [0, 0, 1];
+  if (Math.abs(dir[2]) > 0.95) up = [1, 0, 0];
+  let u = [up[1]*dir[2] - up[2]*dir[1], up[2]*dir[0] - up[0]*dir[2], up[0]*dir[1] - up[1]*dir[0]];
+  const ulen = Math.hypot(u[0], u[1], u[2]) || 1;
+  u = [u[0]/ulen * r, u[1]/ulen * r, u[2]/ulen * r];
+  let v = [dir[1]*u[2] - dir[2]*u[1], dir[2]*u[0] - dir[0]*u[2], dir[0]*u[1] - dir[1]*u[0]];
+  const vlen = Math.hypot(v[0], v[1], v[2]) || 1;
+  v = [v[0]/vlen * r, v[1]/vlen * r, v[2]/vlen * r];
+
+  const v1 = [x1 + u[0] + v[0], y1 + u[1] + v[1], z1 + u[2] + v[2]];
+  const v2 = [x1 - u[0] + v[0], y1 - u[1] + v[1], z1 - u[2] + v[2]];
+  const v3 = [x1 - u[0] - v[0], y1 - u[1] - v[1], z1 - u[2] - v[2]];
+  const v4 = [x1 + u[0] - v[0], y1 + u[1] - v[1], z1 + u[2] - v[2]];
+
+  const v5 = [x2 + u[0] + v[0], y2 + u[1] + v[1], z2 + u[2] + v[2]];
+  const v6 = [x2 - u[0] + v[0], y2 - u[1] + v[1], z2 - u[2] + v[2]];
+  const v7 = [x2 - u[0] - v[0], y2 - u[1] - v[1], z2 - u[2] - v[2]];
+  const v8 = [x2 + u[0] - v[0], y2 + u[1] - v[1], z2 + u[2] - v[2]];
+
+  const tris = [
+    [v1, v5, v6], [v1, v6, v2],
+    [v2, v6, v7], [v2, v7, v3],
+    [v3, v7, v8], [v3, v8, v4],
+    [v4, v8, v5], [v4, v5, v1],
+    [v1, v2, v3], [v1, v3, v4],
+    [v5, v8, v7], [v5, v7, v6],
+  ];
+
+  const posData = [], normData = [], colData = [];
+  for (const tri of tris) {
+    const a = tri[0], b = tri[1], c = tri[2];
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2];
+    const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    let nx = e1y * e2z - e1z * e2y;
+    let ny = e1z * e2x - e1x * e2z;
+    let nz = e1x * e2y - e1y * e2x;
+    const nl = Math.hypot(nx, ny, nz) || 1;
+    nx /= nl; ny /= nl; nz /= nl;
+
+    for (const pt of [a, b, c]) {
+      posData.push(pt[0], pt[1], pt[2]);
+      normData.push(nx, ny, nz);
+      colData.push(color[0], color[1], color[2], color[3]);
+    }
+  }
+  return { posData, normData, colData };
+}
+
+let wireGL = null;
+let meshProg = null, lineProg = null;
+let meshVAO = { posBuf: null, normBuf: null, colBuf: null, count: 0 };
+let lineVAO = { posBuf: null, colBuf: null, count: 0 };
+let gridVAO = { posBuf: null, colBuf: null, count: 0 };
+
+let currentRenderMode = "shaded";
+let rawPrimitives = [];
+let stlParts = [];
+let modelBounds = { minX: -100, maxX: 100, minY: -100, maxY: 100, minZ: 0, maxZ: 200, cx: 0, cy: 0, cz: 100, radius: 200 };
+
+const wireOrbit = {
+  yaw: Math.PI / 4,
+  pitch: Math.asin(1 / Math.sqrt(3)),
+  distance: 300,
+  target: [0, 0, 0],
+  panX: 0,
+  panY: 0,
+  reset() {
+    this.yaw = Math.PI / 4;
+    this.pitch = Math.asin(1 / Math.sqrt(3));
+    this.panX = 0;
+    this.panY = 0;
+    this.distance = Math.max(100, modelBounds.radius * 2.2);
+    this.target = [modelBounds.cx, modelBounds.cy, modelBounds.cz];
+  },
+  setView(name) {
+    if (name === "front") { this.yaw = 0; this.pitch = 0; }
+    else if (name === "side") { this.yaw = -Math.PI / 2; this.pitch = 0; }
+    else if (name === "top") { this.yaw = 0; this.pitch = Math.PI / 2 - 0.001; }
+    else { this.yaw = Math.PI / 4; this.pitch = Math.asin(1 / Math.sqrt(3)); }
+  }
+};
+
+function initWireWebGL() {
+  const canvas = $("wire-canvas");
+  if (!canvas) return;
+  const gl = canvas.getContext("webgl", { antialias: true, alpha: false });
+  if (!gl) return;
+  wireGL = gl;
+
+  meshProg = createGLProgram(gl, VS_SOURCE, FS_SOURCE);
+  lineProg = createGLProgram(gl, VS_LINE_SOURCE, FS_LINE_SOURCE);
+
+  meshVAO.posBuf = gl.createBuffer();
+  meshVAO.normBuf = gl.createBuffer();
+  meshVAO.colBuf = gl.createBuffer();
+
+  lineVAO.posBuf = gl.createBuffer();
+  lineVAO.colBuf = gl.createBuffer();
+
+  gridVAO.posBuf = gl.createBuffer();
+  gridVAO.colBuf = gl.createBuffer();
+
+  let dragging = false, panning = false, lastX = 0, lastY = 0;
+  canvas.addEventListener("mousedown", (e) => {
+    dragging = true;
+    panning = (e.button === 2 || e.shiftKey);
+    lastX = e.clientX; lastY = e.clientY;
+    e.preventDefault();
+  });
+  window.addEventListener("mouseup", () => { dragging = false; panning = false; });
+  window.addEventListener("mousemove", (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    if (panning) {
+      const panFactor = (wireOrbit.distance / (canvas.clientHeight || 600)) * 1.5;
+      const cy = Math.cos(wireOrbit.yaw), sy = Math.sin(wireOrbit.yaw);
+      wireOrbit.panX -= (dx * cy - dy * sy) * panFactor;
+      wireOrbit.panY += (dx * sy + dy * cy) * panFactor;
+    } else {
+      wireOrbit.yaw += dx * 0.01;
+      wireOrbit.pitch = Math.max(-Math.PI / 2 + 0.01, Math.min(Math.PI / 2 - 0.01, wireOrbit.pitch + dy * 0.01));
+    }
+    drawWireScene();
+  });
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    wireOrbit.distance *= e.deltaY < 0 ? 0.90 : 1.11;
+    wireOrbit.distance = Math.max(5, Math.min(1000000, wireOrbit.distance));
+    drawWireScene();
+  }, { passive: false });
+  canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
+function rebuildWireWebGLBuffers() {
+  if (!wireGL) return;
+  const gl = wireGL;
+
+  const meshPos = [], meshNorm = [], meshCol = [];
+  const linePos = [], lineCol = [];
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+
+  function expandBBox(x, y, z) {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+  }
+
+  for (const prim of rawPrimitives) {
+    if (prim.type === "line") {
+      const [px, py, pz] = prim.position || [0, 0, 0];
+      const s = prim.params?.start || [0, 0, 0];
+      const e = prim.params?.end || [100, 0, 0];
+      const x1 = s[0] + px, y1 = s[1] + py, z1 = s[2] + pz;
+      const x2 = e[0] + px, y2 = e[1] + py, z2 = e[2] + pz;
+
+      expandBBox(x1, y1, z1); expandBBox(x2, y2, z2);
+
+      linePos.push(x1, y1, z1, x2, y2, z2);
+      lineCol.push(0.61, 0.70, 0.81, 0.9, 0.61, 0.70, 0.81, 0.9);
+
+      const isMainLeg = (prim.name || "").includes("Leg") || (prim.name || "").includes("Body");
+      const radius = isMainLeg ? 45 : 22;
+      const solid = generateLineSolidMesh(x1, y1, z1, x2, y2, z2, radius, [0.52, 0.62, 0.74, 1.0]);
+      meshPos.push(...solid.posData);
+      meshNorm.push(...solid.normData);
+      meshCol.push(...solid.colData);
+    }
+  }
+
+  const anyActive = stlParts.some((p) => p.active);
+
+  for (const part of stlParts) {
+    if (!part.triangles) continue;
+    const isAct = part.active;
+
+    const isSilicone = (part.path || "").toLowerCase().includes("fxbw");
+    let baseR = isSilicone ? 0.78 : 0.68, baseG = isSilicone ? 0.45 : 0.74, baseB = isSilicone ? 0.38 : 0.82, baseA = 1.0;
+    if (isAct) {
+      baseR = 0.98; baseG = 0.82; baseB = 0.20; baseA = 1.0;
+    } else if (anyActive) {
+      baseR = 0.28; baseG = 0.35; baseB = 0.42; baseA = 0.30;
+    }
+
+    for (const tri of part.triangles) {
+      const p1 = tri[0], p2 = tri[1], p3 = tri[2];
+      expandBBox(p1[0], p1[1], p1[2]);
+      expandBBox(p2[0], p2[1], p2[2]);
+      expandBBox(p3[0], p3[1], p3[2]);
+
+      const e1x = p2[0] - p1[0], e1y = p2[1] - p1[1], e1z = p2[2] - p1[2];
+      const e2x = p3[0] - p1[0], e2y = p3[1] - p1[1], e2z = p3[2] - p1[2];
+      let nx = e1y * e2z - e1z * e2y;
+      let ny = e1z * e2x - e1x * e2z;
+      let nz = e1x * e2y - e1y * e2x;
+      const nl = Math.hypot(nx, ny, nz) || 1;
+      nx /= nl; ny /= nl; nz /= nl;
+
+      for (const pt of [p1, p2, p3]) {
+        meshPos.push(pt[0], pt[1], pt[2]);
+        meshNorm.push(nx, ny, nz);
+        meshCol.push(baseR, baseG, baseB, baseA);
+      }
+
+      linePos.push(
+        p1[0], p1[1], p1[2], p2[0], p2[1], p2[2],
+        p2[0], p2[1], p2[2], p3[0], p3[1], p3[2],
+        p3[0], p3[1], p3[2], p1[0], p1[1], p1[2]
+      );
+      const lineR = isAct ? 0.98 : (isSilicone ? 0.85 : 0.65);
+      const lineG = isAct ? 0.82 : (isSilicone ? 0.60 : 0.75);
+      const lineB = isAct ? 0.20 : (isSilicone ? 0.55 : 0.85);
+      const lineA = isAct ? 1.0 : (anyActive ? 0.25 : 0.8);
+      for (let k = 0; k < 6; k++) {
+        lineCol.push(lineR, lineG, lineB, lineA);
+      }
+    }
+  }
+
+  if (minX !== Infinity) {
+    modelBounds.minX = minX; modelBounds.maxX = maxX;
+    modelBounds.minY = minY; modelBounds.maxY = maxY;
+    modelBounds.minZ = minZ; modelBounds.maxZ = maxZ;
+    modelBounds.cx = (minX + maxX) / 2;
+    modelBounds.cy = (minY + maxY) / 2;
+    modelBounds.cz = (minZ + maxZ) / 2;
+    modelBounds.radius = Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) / 2 || 200;
+  }
+
+  const gridPos = [], gridCol = [];
+  const half = Math.max(100, Math.max(Math.abs(minX || 0), Math.abs(maxX || 0), Math.abs(minY || 0), Math.abs(maxY || 0)) * 1.3);
+  const zG = minZ !== Infinity ? minZ : 0;
+  const step = half / 5;
+  for (let v = -half; v <= half + 1e-4; v += step) {
+    gridPos.push(v, -half, zG, v, half, zG);
+    gridCol.push(0.35, 0.42, 0.52, 0.4, 0.35, 0.42, 0.52, 0.4);
+    gridPos.push(-half, v, zG, half, v, zG);
+    gridCol.push(0.35, 0.42, 0.52, 0.4, 0.35, 0.42, 0.52, 0.4);
+  }
+  gridPos.push(0, 0, zG, 0, 0, zG + half * 0.8);
+  gridCol.push(0.42, 0.65, 1.0, 0.8, 0.42, 0.65, 1.0, 0.8);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, meshVAO.posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshPos), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, meshVAO.normBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshNorm), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, meshVAO.colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(meshCol), gl.STATIC_DRAW);
+  meshVAO.count = meshPos.length / 3;
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, lineVAO.posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(linePos), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, lineVAO.colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(lineCol), gl.STATIC_DRAW);
+  lineVAO.count = linePos.length / 3;
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, gridVAO.posBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(gridPos), gl.STATIC_DRAW);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gridVAO.colBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(gridCol), gl.STATIC_DRAW);
+  gridVAO.count = gridPos.length / 3;
+}
+
+function drawWireScene() {
+  if (!wireGL) return;
+  const gl = wireGL;
+  const canvas = $("wire-canvas");
+
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round((canvas.clientWidth || 800) * dpr);
+  const h = Math.round((canvas.clientHeight || 600) * dpr);
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w;
+    canvas.height = h;
+  }
+  gl.viewport(0, 0, w, h);
+
+  gl.clearColor(0.12, 0.15, 0.18, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.depthFunc(gl.LEQUAL);
+
+  const dist = wireOrbit.distance;
+  const cp = Math.cos(wireOrbit.pitch), sp = Math.sin(wireOrbit.pitch);
+  const cy = Math.cos(wireOrbit.yaw), sy = Math.sin(wireOrbit.yaw);
+
+  const eyeX = wireOrbit.target[0] + dist * cp * sy + wireOrbit.panX;
+  const eyeY = wireOrbit.target[1] - dist * cp * cy + wireOrbit.panY;
+  const eyeZ = wireOrbit.target[2] + dist * sp;
+
+  const viewMat = Mat4.create();
+  Mat4.lookAt(viewMat, [eyeX, eyeY, eyeZ], [wireOrbit.target[0] + wireOrbit.panX, wireOrbit.target[1] + wireOrbit.panY, wireOrbit.target[2]], [0, 0, 1]);
+
+  const projMat = Mat4.create();
+  const aspect = (w / (h || 1)) || 1;
+  const nearZ = Math.max(1.0, modelBounds.radius * 0.001);
+  const farZ = Math.max(500000.0, modelBounds.radius * 100.0);
+  Mat4.perspective(projMat, 45 * Math.PI / 180, aspect, nearZ, farZ);
+
+  const mvpMat = Mat4.create();
+  Mat4.multiply(mvpMat, projMat, viewMat);
+
+  if (gridVAO.count > 0) {
+    gl.useProgram(lineProg);
+    const uMvp = gl.getUniformLocation(lineProg, "u_mvpMatrix");
+    gl.uniformMatrix4fv(uMvp, false, mvpMat);
+
+    const aPos = gl.getAttribLocation(lineProg, "a_position");
+    gl.bindBuffer(gl.ARRAY_BUFFER, gridVAO.posBuf);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+    const aCol = gl.getAttribLocation(lineProg, "a_color");
+    gl.bindBuffer(gl.ARRAY_BUFFER, gridVAO.colBuf);
+    gl.enableVertexAttribArray(aCol);
+    gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, 0, 0);
+
+    gl.drawArrays(gl.LINES, 0, gridVAO.count);
+  }
+
+  if ((currentRenderMode === "shaded" || currentRenderMode === "hybrid") && meshVAO.count > 0) {
+    gl.useProgram(meshProg);
+    const uMvp = gl.getUniformLocation(meshProg, "u_mvpMatrix");
+    const uView = gl.getUniformLocation(meshProg, "u_viewMatrix");
+    const uLight = gl.getUniformLocation(meshProg, "u_lightDir");
+
+    gl.uniformMatrix4fv(uMvp, false, mvpMat);
+    gl.uniformMatrix4fv(uView, false, viewMat);
+    gl.uniform3f(uLight, 0.45, 0.55, 0.70);
+
+    const aPos = gl.getAttribLocation(meshProg, "a_position");
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshVAO.posBuf);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+    const aNorm = gl.getAttribLocation(meshProg, "a_normal");
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshVAO.normBuf);
+    gl.enableVertexAttribArray(aNorm);
+    gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 0, 0);
+
+    const aCol = gl.getAttribLocation(meshProg, "a_color");
+    gl.bindBuffer(gl.ARRAY_BUFFER, meshVAO.colBuf);
+    gl.enableVertexAttribArray(aCol);
+    gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, 0, 0);
+
+    gl.drawArrays(gl.TRIANGLES, 0, meshVAO.count);
+  }
+
+  if ((currentRenderMode === "wireframe" || currentRenderMode === "hybrid") && lineVAO.count > 0) {
+    gl.useProgram(lineProg);
+    const uMvp = gl.getUniformLocation(lineProg, "u_mvpMatrix");
+    gl.uniformMatrix4fv(uMvp, false, mvpMat);
+
+    const aPos = gl.getAttribLocation(lineProg, "a_position");
+    gl.bindBuffer(gl.ARRAY_BUFFER, lineVAO.posBuf);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+    const aCol = gl.getAttribLocation(lineProg, "a_color");
+    gl.bindBuffer(gl.ARRAY_BUFFER, lineVAO.colBuf);
+    gl.enableVertexAttribArray(aCol);
+    gl.vertexAttribPointer(aCol, 4, gl.FLOAT, false, 0, 0);
+
+    gl.drawArrays(gl.LINES, 0, lineVAO.count);
+  }
+}
+
+wireOrbit.draw = drawWireScene;
 
 function loadWireModel(model) {
-  wireSegments = [];
+  rawPrimitives = model.geometry?.primitives || [];
   stlParts = [];
-  for (const prim of (model.geometry.primitives || [])) {
-    wireSegments.push(...primToSegments(prim));
-  }
-  resizeCanvas($("wire-canvas"));
+  rebuildWireWebGLBuffers();
   wireOrbit.reset();
-  wireOrbit.draw();
+  document.querySelectorAll("#tab-wire .view-btn[data-view]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === "iso");
+  });
+  drawWireScene();
 }
 
-// ---------- STL 部件：自动加载全部 + 左侧清单点击高亮 ----------
 function applyTransform(v, m) {
   if (!m || m.length !== 16) return v;
   return [
@@ -579,49 +966,49 @@ function applyTransform(v, m) {
 
 async function loadStlParts(model) {
   stlParts = [];
-  // 部件实例列表（path+transform+faces）来自解析期收集的 extra.stl_parts
   const instances = (model.extra && model.extra.stl_parts) || [];
   if (!instances.length) {
     renderInfoPanel(model);
     return;
   }
-  toast(`正在加载 ${instances.length} 个 STL 部件…`);
-  // 按唯一文件取原始三角面，多实例共享
+  toast("正在加载 " + instances.length + " 个 STL 部件…");
   const rawByPath = {};
   await Promise.all([...new Set(instances.map((p) => p.path))].map(async (path) => {
     try {
-      const url = `/api/models/${currentId}/stl/${path.split("/").map(encodeURIComponent).join("/")}`;
+      const url = "/api/models/" + currentId + "/stl/" + path.split("/").map(encodeURIComponent).join("/");
       rawByPath[path] = (await (await api(url)).json()).triangles;
     } catch (e) { rawByPath[path] = null; }
   }));
 
-  const stepHint = 4000;
-  stlParts = instances.map((inst, idx) => {
+  stlParts = instances.map((inst) => {
     const raw = rawByPath[inst.path];
     if (!raw) return null;
     const m = inst.transform || [];
-    const step = Math.max(1, Math.ceil(raw.length / stepHint));
-    const edges = [];
-    for (let i = 0; i < raw.length; i += step) {
+    const triangles = [];
+    for (let i = 0; i < raw.length; i++) {
       const t = raw[i];
-      // 三角面三边，顶点按实例矩阵变换
-      const vs = t.map((v) => applyTransform(v, m));
-      for (let e = 0; e < 3; e++) {
-        const a = vs[e], b = vs[(e + 1) % 3];
-        edges.push({ x1: a[0], y1: a[1], z1: a[2], x2: b[0], y2: b[1], z2: b[2] });
-      }
+      const p1 = applyTransform(t[0], m);
+      const p2 = applyTransform(t[1], m);
+      const p3 = applyTransform(t[2], m);
+      triangles.push([p1, p2, p3]);
     }
     return {
       path: inst.path,
-      name: inst.path.split("/").pop() + (instances.filter((x) => x.path === inst.path).length > 1 ? `#${instances.filter((x) => x.path === inst.path).indexOf(inst) + 1}` : ""),
+      name: inst.path.split("/").pop() + (instances.filter((x) => x.path === inst.path).length > 1 ? "#" + (instances.filter((x) => x.path === inst.path).indexOf(inst) + 1) : ""),
       faces: inst.faces,
-      edges,
+      triangles,
       active: false,
     };
   }).filter(Boolean);
-  toast(`STL 部件已加载：${stlParts.length} 个`);
+
+  toast("STL 部件已就绪：" + stlParts.length + " 个");
   renderInfoPanel(model);
-  wireOrbit.draw();
+  rebuildWireWebGLBuffers();
+  wireOrbit.reset();
+  document.querySelectorAll("#tab-wire .view-btn[data-view]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === "iso");
+  });
+  drawWireScene();
 }
 
 function toggleStlPart(path) {
@@ -629,82 +1016,11 @@ function toggleStlPart(path) {
   if (!part) return;
   part.active = !part.active;
   renderInfoPanel(currentModel);
-  wireOrbit.draw();
+  rebuildWireWebGLBuffers();
+  drawWireScene();
 }
 
-wireViewBtns.forEach((btn) => {
-  btn.onclick = () => {
-    wireViewBtns.forEach((b) => b.classList.toggle("active", b === btn));
-    wireOrbit.setView(btn.dataset.view);
-    wireOrbit.draw();
-  };
-});
-$("btn-wire-reset").onclick = () => {
-  wireOrbit.reset();
-  wireViewBtns.forEach((b) => b.classList.toggle("active", b.dataset.view === "iso"));
-  wireOrbit.draw();
-};
-
-// ---------- 场景辅助：地面网格 + 右上角轴向指示 ----------
-function drawGrid(ctx, orbit, half, step, ox, oy, k, z = 0) {
-  ctx.strokeStyle = "rgba(120,140,170,0.28)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let v = -half; v <= half + 1e-6; v += step) {
-    const a = orbit.project(v, -half, z), b = orbit.project(v, half, z);
-    ctx.moveTo(ox + a[0] * k, oy + a[1] * k);
-    ctx.lineTo(ox + b[0] * k, oy + b[1] * k);
-    const c = orbit.project(-half, v, z), d = orbit.project(half, v, z);
-    ctx.moveTo(ox + c[0] * k, oy + c[1] * k);
-    ctx.lineTo(ox + d[0] * k, oy + d[1] * k);
-  }
-  ctx.stroke();
-  // Z 轴立杆
-  ctx.strokeStyle = "rgba(150,170,200,0.5)";
-  ctx.beginPath();
-  const z0 = orbit.project(0, 0, z), z1 = orbit.project(0, 0, z + half);
-  ctx.moveTo(ox + z0[0] * k, oy + z0[1] * k);
-  ctx.lineTo(ox + z1[0] * k, oy + z1[1] * k);
-  ctx.stroke();
-}
-
-function drawAxesIndicator(ctx, orbit, cv) {
-  // 右上角实时轴向：单位轴向量经当前视角投影
-  const cx = cv.width - 64, cy = 64, R = 40;
-  const axes = [
-    { v: [1, 0, 0], c: "#ff5d5d", label: "X" },
-    { v: [0, 1, 0], c: "#7ddf7d", label: "Y" },
-    { v: [0, 0, 1], c: "#6da8ff", label: "Z" },
-  ];
-  ctx.save();
-  ctx.fillStyle = "rgba(16,20,28,0.55)";
-  ctx.beginPath();
-  ctx.arc(cx, cy, R + 14, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.font = "bold 11px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  for (const { v, c, label } of axes) {
-    const [px, py] = orbit.project(v[0], v[1], v[2]);
-    ctx.strokeStyle = c;
-    ctx.fillStyle = c;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.lineTo(cx + px * R, cy + py * R);
-    ctx.stroke();
-    ctx.fillText(label, cx + px * (R + 8), cy + py * (R + 8));
-  }
-  // 原点
-  ctx.fillStyle = "#ccc";
-  ctx.beginPath();
-  ctx.arc(cx, cy, 2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-
-// ---------- 点云三维 ----------
+// ---------- 点云实时 3D ----------
 let pcData = null;
 const pointcloudState = { status: "idle", requestSeq: 0 };
 const pcOrbit = makeOrbit($("pointcloud-canvas"));
@@ -724,7 +1040,6 @@ pcOrbit.onDraw = function drawPointcloud() {
   const projected = pcData.points.map(([x, y, z]) => pcOrbit.project(x, y, z));
   const { s: k, ox, oy } = pcOrbit.fit(projected);
 
-  // 地面网格：以点云 x/y 水平范围与场景 z 中心为基准（不把 z 高度当横向半径）
   let half = 100;
   let zMin = Infinity;
   for (const [x, y, z] of pcData.points) {
@@ -732,116 +1047,182 @@ pcOrbit.onDraw = function drawPointcloud() {
     if (z < zMin) zMin = z;
   }
   half = (half || 100) * 1.25;
-  const pcGridZ = zMin !== Infinity ? zMin : 0;
-  drawGrid(ctx, pcOrbit, half, half / 5, ox, oy, k, pcGridZ);
+  const gridZ = zMin !== Infinity ? zMin : 0;
 
-  const palette = {};
-  for (const label of new Set(pcData.labels)) {
-    let h = 0;
-    for (const c of label) h = (h * 31 + c.codePointAt(0)) % 360;
-    palette[label] = `hsl(${h},70%,60%)`;
+  ctx.strokeStyle = "rgba(120,140,170,0.28)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const step = half / 5;
+  for (let v = -half; v <= half + 1e-6; v += step) {
+    const a = pcOrbit.project(v, -half, gridZ), b = pcOrbit.project(v, half, gridZ);
+    ctx.moveTo(ox + a[0] * k, oy + a[1] * k);
+    ctx.lineTo(ox + b[0] * k, oy + b[1] * k);
+    const c = pcOrbit.project(-half, v, gridZ), d = pcOrbit.project(half, v, gridZ);
+    ctx.moveTo(ox + c[0] * k, oy + c[1] * k);
+    ctx.lineTo(ox + d[0] * k, oy + d[1] * k);
   }
-  ctx.font = "12px sans-serif";
-  let lx = 10;
-  for (const [label, color] of Object.entries(palette)) {
-    ctx.fillStyle = color;
-    ctx.fillRect(lx, 8, 8, 8);
-    ctx.fillText(label, lx + 11, 16);
-    lx += 22 + ctx.measureText(label).width;
-  }
-  ctx.fillStyle = "#888";
-  ctx.fillText(`${pcData.count} pts · yaw ${Math.round(pcOrbit.state.yaw * 180 / Math.PI)}° pitch ${Math.round(pcOrbit.state.pitch * 180 / Math.PI)}°`, 10, cv.height - 10);
-  drawAxesIndicator(ctx, pcOrbit, cv);
+  ctx.stroke();
 
-  const size = pcData.count > 5000 ? 1.5 : 2.5;
-  for (let i = 0; i < pcData.count; i++) {
+  const palette = [
+    "#ffd54a", "#6ee7b7", "#93c5fd", "#f472b6", "#c084fc",
+    "#fb923c", "#a3e635", "#38bdf8", "#e879f9", "#cbd5e1",
+  ];
+  const uniqueLabels = [...new Set(pcData.labels || [])];
+  const labelColor = {};
+  uniqueLabels.forEach((l, i) => { labelColor[l] = palette[i % palette.length]; });
+
+  ctx.globalAlpha = 0.85;
+  const radius = 1.2;
+  for (let i = 0; i < projected.length; i++) {
     const [px, py] = projected[i];
-    ctx.fillStyle = palette[pcData.labels[i]] || "#fff";
-    ctx.fillRect(ox + px * k - size / 2, oy + py * k - size / 2, size, size);
+    ctx.fillStyle = labelColor[pcData.labels[i]] || "#ffd54a";
+    ctx.fillRect(ox + px * k - radius, oy + py * k - radius, radius * 2, radius * 2);
   }
+  ctx.globalAlpha = 1;
+
+  ctx.fillStyle = "#8aa";
+  ctx.font = "11px sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText(pcData.count + " pts · yaw " + Math.round(pcOrbit.state.yaw * 180 / Math.PI) + "° pitch " + Math.round(pcOrbit.state.pitch * 180 / Math.PI) + "°", 10, cv.height - 10);
 };
 
 function clearPointcloud() {
-  pcData = null;
-  pointcloudState.requestSeq++;   // 丢弃旧模型未完成的请求
+  pointcloudState.requestSeq += 1;
   pointcloudState.status = "idle";
-  $("btn-pointcloud").disabled = false;
-  $("btn-pointcloud").textContent = "采样";
+  pcData = null;
   const cv = $("pointcloud-canvas");
-  cv.getContext("2d").clearRect(0, 0, cv.width, cv.height);
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0, 0, cv.width, cv.height);
 }
 
-$("btn-pointcloud").onclick = async () => {
-  if (pointcloudState.status === "loading") return;
+async function fetchPointcloud() {
+  if (!currentId) return;
   const seq = ++pointcloudState.requestSeq;
   pointcloudState.status = "loading";
-  $("btn-pointcloud").disabled = true;
-  $("btn-pointcloud").textContent = "采样中…";
+  const btn = $("btn-pointcloud");
+  const oldText = btn.textContent;
+  btn.textContent = "采样中…";
+  btn.disabled = true;
+
   try {
-    const params = new URLSearchParams({ seed: "42" });
-    params.set("count", $("pc-count").value || "10000");
-    const data = await (await api(`/api/models/${currentId}/pointcloud?${params.toString()}`)).json();
-    if (seq !== pointcloudState.requestSeq) return;  // 已切换模型，丢弃
+    const rawVal = $("pc-count").value;
+    const count = parseInt(rawVal, 10) || 2000;
+    const data = await (await api("/api/models/" + currentId + "/pointcloud?quality=custom&count=" + count)).json();
+    if (seq !== pointcloudState.requestSeq) return;
     pcData = data;
+    pointcloudState.status = "ready";
     resizeCanvas($("pointcloud-canvas"));
     pcOrbit.reset();
     pcOrbit.draw();
-    toast(data.count ? `已采样 ${data.count} 点` : "模型没有可采样几何");
   } catch (e) {
-    if (seq === pointcloudState.requestSeq) toast("失败：" + e.message);
+    if (seq !== pointcloudState.requestSeq) return;
+    pointcloudState.status = "error";
+    toast("点云加载失败：" + e.message);
   } finally {
     if (seq === pointcloudState.requestSeq) {
-      pointcloudState.status = "idle";
-      $("btn-pointcloud").disabled = false;
-      $("btn-pointcloud").textContent = "采样";
+      btn.textContent = oldText;
+      btn.disabled = false;
     }
   }
+}
+
+$("btn-pointcloud").onclick = fetchPointcloud;
+$("btn-pc-reset").onclick = () => {
+  pcOrbit.reset();
+  pcOrbit.draw();
 };
-$("btn-pc-reset").onclick = () => { pcOrbit.reset(); pcOrbit.draw(); };
 
-// ---------- 列表（分页） ----------
-const PAGE_SIZE = 100;
-let currentPage = 1;
-let totalPages = 1;
+$("btn-new").onclick = () => {
+  $("n-name").value = "";
+  $("n-code").value = "";
+  $("n-voltage").value = "";
+  $("n-desc").value = "";
+  $("dlg-new").showModal();
+};
+$("n-cancel").onclick = () => $("dlg-new").close();
 
-async function refreshList(page) {
-  if (page !== undefined) currentPage = page;
+$("btn-import").onclick = () => {
+  $("imp-file").value = "";
+  $("imp-name").value = "";
+  $("imp-voltage").value = "";
+  $("dlg-import").showModal();
+};
+$("imp-cancel").onclick = () => $("dlg-import").close();
+
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    document.querySelectorAll(".tab-body").forEach((b) => b.classList.toggle("active", b.id === btn.dataset.tab));
+    if (btn.dataset.tab === "tab-wire") { drawWireScene(); }
+    if (btn.dataset.tab === "tab-pc") { resizeCanvas($("pointcloud-canvas")); pcOrbit.draw(); }
+  };
+});
+
+document.querySelectorAll("#tab-wire .mode-btn").forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll("#tab-wire .mode-btn").forEach((b) => b.classList.toggle("active", b === btn));
+    currentRenderMode = btn.dataset.mode || "shaded";
+    drawWireScene();
+  };
+});
+
+document.querySelectorAll("#tab-wire .view-btn[data-view]").forEach((btn) => {
+  btn.onclick = () => {
+    document.querySelectorAll("#tab-wire .view-btn[data-view]").forEach((b) => b.classList.toggle("active", b === btn));
+    wireOrbit.setView(btn.dataset.view);
+    drawWireScene();
+  };
+});
+
+$("btn-wire-reset").onclick = () => {
+  wireOrbit.reset();
+  document.querySelectorAll("#tab-wire .view-btn[data-view]").forEach((b) => b.classList.toggle("active", b.dataset.view === "iso"));
+  drawWireScene();
+};
+
+async function refreshList(page = 1) {
+  currentPage = page;
+  const q = ($("search").value || "").trim();
   const params = new URLSearchParams();
-  if ($("search").value.trim()) params.set("keyword", $("search").value.trim());
-  for (const c of (ddDomain.value || [])) params.append("category", c);
-  for (const s of (ddEtype.value || [])) params.append("subcategory", s);
-  if (ddVoltage.value) params.set("voltage_level", ddVoltage.value);
-  params.set("offset", (currentPage - 1) * PAGE_SIZE);
-  params.set("limit", PAGE_SIZE);
+  if (q) params.set("q", q);
+  if (currentType) params.set("model_type", currentType);
+  if (selectedCategories.length) params.set("category", selectedCategories.join(","));
+  if (selectedEquipmentTypes.length) params.set("subcategory", selectedEquipmentTypes.join(","));
+  if (selectedVoltageLevel) params.set("voltage_level", selectedVoltageLevel);
+  params.set("page", page);
+  params.set("page_size", 100);
 
-  const resp = await api("/api/models?" + params.toString());
-  const total = parseInt(resp.headers.get("X-Total-Count") || "0", 10);
-  totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  if (currentPage > totalPages) { currentPage = totalPages; return refreshList(currentPage); }
-  const models = await resp.json();
+  const res = await api("/api/models?" + params.toString());
+  const models = await res.json();
+  const total = parseInt(res.headers.get("X-Total-Count") || models.length, 10);
+  const totalPages = Math.max(1, Math.ceil(total / 100));
+
+  $("pg-info").textContent = page + "/" + totalPages + " (共 " + total + " 个)";
+  $("pg-prev").disabled = page <= 1;
+  $("pg-next").disabled = page >= totalPages;
 
   const ul = $("model-list");
-  ul.innerHTML = "";
-  for (const m of models) {
-    const li = document.createElement("li");
-    li.dataset.id = m.id;
-    if (m.id === currentId) li.classList.add("active");
-    li.innerHTML =
-      `<span>${escapeHtml(m.name)}</span>${sourceBadge(m)}<span class="m-code">${escapeHtml(m.code)}</span>` +
-      `<div class="m-code">［${escapeHtml(m.category || "未分类")}${m.subcategory ? " / " + escapeHtml(m.subcategory) : ""}］</div>`;
-    li.onclick = () => selectModel(m.id);
-    ul.appendChild(li);
-  }
-  $("list-count").textContent = `共 ${total} 个模型`;
-  $("pg-info").textContent = `${currentPage}/${totalPages}`;
-  $("pg-prev").disabled = currentPage <= 1;
-  $("pg-next").disabled = currentPage >= totalPages;
+  ul.innerHTML = models.length
+    ? models.map((m) => {
+        const typeZh = TYPE_LABELS[m.model_type] || m.model_type;
+        const stageZh = STAGE_LABELS[m.stage] || m.stage;
+        const sourceZh = SOURCE_LABELS[m.source] || m.source || "手工";
+        const catZh = m.category || "未分类";
+        const subZh = m.subcategory ? " · " + m.subcategory : "";
+        const voltZh = m.voltage_level ? " · " + m.voltage_level : "";
+        return '<li data-id="' + m.id + '"><div class="name">' + escapeHtml(m.name) + '</div><div class="sub"><span class="source-tag source-' + (m.source || 'manual') + '">' + escapeHtml(sourceZh) + '</span>' + escapeHtml(catZh) + escapeHtml(subZh) + escapeHtml(voltZh) + ' · ' + escapeHtml(typeZh) + ' · ' + escapeHtml(stageZh) + ' · v' + escapeHtml(m.version) + '</div></li>';
+      }).join("")
+    : '<li style="color:#aab;padding:12px;cursor:default">无匹配模型</li>';
+
+  ul.querySelectorAll("li[data-id]").forEach((li) => {
+    li.onclick = () => selectModel(li.dataset.id);
+    if (li.dataset.id === currentId) li.classList.add("active");
+  });
 }
 
 $("pg-prev").onclick = () => refreshList(currentPage - 1);
 $("pg-next").onclick = () => refreshList(currentPage + 1);
 
-// ---------- 详情 + 信息栏（属性 + 操作 + 版本） ----------
 async function selectModel(id) {
   currentId = id;
   document.querySelectorAll("#model-list li").forEach(
@@ -868,7 +1249,7 @@ function renderInfoPanel(model) {
   }
   const origin = model.origin || {};
   const originText = origin["软件名称"]
-    ? `${origin["软件名称"]}${origin["组织单位"] ? " · " + origin["组织单位"] : ""}${origin["原始创建时间"] ? " · " + origin["原始创建时间"] : ""}`
+    ? (origin["软件名称"] + (origin["组织单位"] ? " · " + origin["组织单位"] : "") + (origin["原始创建时间"] ? " · " + origin["原始创建时间"] : ""))
     : "—";
   const basicRows = [
     ["编码", model.code || "—"],
@@ -876,77 +1257,67 @@ function renderInfoPanel(model) {
     ["类型", TYPE_LABELS[model.model_type] || model.model_type],
     ["阶段", STAGE_LABELS[model.stage] || model.stage],
     ["版本", model.version],
-    ["图元数", model.geometry.primitives.length],
+    ["图元数", model.geometry?.primitives?.length || 0],
     ["描述", model.description || "—"],
   ];
-  // 可编辑项：大类 / 子分类 / 电压等级（直接编辑，保存走 PUT）
-  const catOpts = catTree.map((n) => `<option${n === model.category ? " selected" : ""}>${escapeHtml(n)}</option>`).join("");
-  const subPool = equipmentTypes.includes(model.subcategory)
-    ? equipmentTypes
-    : [...equipmentTypes, model.subcategory].filter(Boolean);
-  const subOpts = subPool.map((n) => `<option${n === model.subcategory ? " selected" : ""}>${escapeHtml(n)}</option>`).join("");
+  const validCats = Array.isArray(catTree) ? catTree : [];
+  const catOpts = validCats.map((n) => '<option' + (n === model.category ? ' selected' : '') + '>' + escapeHtml(n) + '</option>').join("");
+  const validEquips = Array.isArray(equipmentTypes) ? equipmentTypes : [];
+  const subPool = validEquips.includes(model.subcategory)
+    ? validEquips
+    : [...validEquips, model.subcategory].filter(Boolean);
+  const subOpts = subPool.map((n) => '<option' + (n === model.subcategory ? ' selected' : '') + '>' + escapeHtml(n) + '</option>').join("");
   const editRows =
-    `<div class="wide"><b>大类</b><select id="ie-category">${catOpts}</select></div>` +
-    `<div class="wide"><b>子分类</b><select id="ie-subcategory">${subOpts}</select></div>` +
-    `<div class="wide"><b>电压等级</b><input id="ie-voltage" value="${escapeHtml(model.voltage_level || "")}" placeholder="如：110kV（AC/DC 前缀自动去除）"></div>`;
+    '<div class="wide"><b>大类</b><select id="ie-category">' + catOpts + '</select></div>' +
+    '<div class="wide"><b>子分类</b><select id="ie-subcategory">' + subOpts + '</select></div>' +
+    '<div class="wide"><b>电压等级</b><input id="ie-voltage" value="' + escapeHtml(model.voltage_level || "") + '" placeholder="如：110kV（AC/DC 前缀自动去除）"></div>';
   const groupHtml = Object.keys(groups).map((cat) => {
     const list = groups[cat];
     const label = CATEGORY_LABELS[cat] || cat;
     const rows = list.map((a) =>
-      `<tr><td class="k" title="${escapeHtml(a.key)}">${escapeHtml(a.description || a.key)}</td>` +
-      `<td class="v">${escapeHtml(String(a.value))}${a.unit ? " " + escapeHtml(a.unit) : ""}</td></tr>`
+      '<tr><td class="k" title="' + escapeHtml(a.key) + '">' + escapeHtml(a.description || a.key) + '</td>' +
+      '<td class="v">' + escapeHtml(String(a.value)) + (a.unit ? ' ' + escapeHtml(a.unit) : '') + '</td></tr>'
     ).join("");
-    return `<details class="attr-group"${cat === "design" ? " open" : ""}>` +
-      `<summary>${escapeHtml(label)} <span class="cnt">(${list.length})</span></summary>` +
-      `<table class="attrs">${rows}</table></details>`;
+    return '<details class="attr-group"' + (cat === "design" ? ' open' : '') + '>' +
+      '<summary>' + escapeHtml(label) + ' <span class="cnt">(' + list.length + ')</span></summary>' +
+      '<table class="attrs">' + rows + '</table></details>';
   }).join("");
 
   panel.innerHTML =
-    `<div id="info-name">${escapeHtml(model.name)}</div>` +
-    `<div id="info-sub">${escapeHtml(TYPE_LABELS[model.model_type] || "")} · ${escapeHtml(STAGE_LABELS[model.stage] || "")}</div>` +
-    `<h4>基本信息` +
-    `<span class="op-row" style="display:inline-flex;margin:0 0 0 8px;vertical-align:middle">` +
-    `<button id="btn-info-save" style="padding:2px 10px">保存</button>` +
-    `<button id="btn-info-cancel" style="padding:2px 10px">取消</button>` +
-    `</span></h4>` +
-    `<div class="meta-grid">` +
-    editRows +
-    basicRows.map(([k, v]) => {
-      const wide = k === "描述" ? " wide" : "";
-      return `<div class="${wide}"><b>${k}</b>　${escapeHtml(String(v))}</div>`;
-    }).join("") +
-    `</div>` +
-    `<h4>属性（${attrs.length}）</h4>` +
+    '<div id="info-name">' + escapeHtml(model.name) + '</div>' +
+    '<div id="info-sub">' + escapeHtml(TYPE_LABELS[model.model_type] || "") + ' · ' + escapeHtml(STAGE_LABELS[model.stage] || "") + '</div>' +
+    '<h4>基本信息<span class="op-row" style="display:inline-flex;margin:0 0 0 8px;vertical-align:middle"><button id="btn-info-save" style="padding:2px 10px">保存</button><button id="btn-info-cancel" style="padding:2px 10px">取消</button></span></h4>' +
+    '<div class="meta-grid">' + editRows + basicRows.map(([k, v]) => '<div class="' + (k === "描述" ? " wide" : "") + '"><b>' + k + '</b>　' + escapeHtml(String(v)) + '</div>').join("") + '</div>' +
+    '<h4>属性（' + attrs.length + '）</h4>' +
     (groupHtml || '<p style="color:#aab;font-size:11px">暂无属性</p>') +
     (stlParts.length
-      ? `<h4>STL 部件（${stlParts.length}）</h4>` +
-        `<div class="stl-list">` +
-        stlParts.map((p) =>
-          `<div class="stl-item${p.active ? " active" : ""}" data-path="${escapeHtml(p.path)}">` +
-          `${escapeHtml(p.name)}<span class="stl-faces">${p.faces}面</span></div>`
-        ).join("") +
-        `</div>`
+      ? '<h4>STL 部件（' + stlParts.length + '）</h4><div class="stl-list">' + stlParts.map((p) => '<div class="stl-item' + (p.active ? " active" : "") + '" data-path="' + escapeHtml(p.path) + '">' + escapeHtml(p.name) + '<span class="stl-faces">' + p.faces + '面</span></div>').join("") + '</div>'
       : "") +
-    `<div class="op-box">` +
-    `<h4>操作</h4>` +
-    `<div class="op-row">` +
-    `<button class="primary" id="btn-export">⇩ 导出 GIM 包</button>` +
-    `<button class="danger" id="btn-delete">✕ 删除模型</button>` +
-    `</div>` +
-    `<h4>版本快照</h4>` +
-    `<div class="op-row">` +
-    `<input class="note" id="version-note" placeholder="快照备注（可留空）">` +
-    `<button class="primary" id="btn-version">创建快照</button>` +
-    `</div>` +
-    `<ul class="versions" id="version-list"></ul>` +
-    `</div>`;
+    '<div class="op-box">' +
+    '<h4>导出中心 (多格式 / AI 点云)</h4>' +
+    '<div class="export-grid">' +
+    '<button class="export-btn" id="btn-exp-gim" title="导出符合国网规范的 GIM 移交包">📦 GIM 移交包</button>' +
+    '<button class="export-btn" id="btn-exp-obj" title="导出 Wavefront OBJ 几何">🌐 导出 OBJ 模型</button>' +
+    '<button class="export-btn" id="btn-exp-stl" title="导出二进制合并 STL 网格">🌐 导出 STL 网格</button>' +
+    '<button class="export-btn" id="btn-exp-las" title="导出标准 ASPRS LAS 1.2 点云">☁️ 导出 LAS 点云</button>' +
+    '<button class="export-btn" id="btn-exp-txt" title="导出文本带分类点云">📄 导出 TXT 点云</button>' +
+    '<button class="export-btn accent" id="btn-exp-custom" title="配置加噪、旋转扰动与点数">⚡ 训练点云生成器...</button>' +
+    '</div>' +
+    '<div class="op-row" style="margin-top:8px"><button class="danger" id="btn-delete" style="width:100%">✕ 删除当前模型</button></div>' +
+    '<h4>版本快照</h4><div class="op-row"><input class="note" id="version-note" placeholder="快照备注（可留空）"><button class="primary" id="btn-version">创建快照</button></div>' +
+    '<ul class="versions" id="version-list"></ul>' +
+    '</div>';
 
   $("btn-info-save").onclick = saveBasicInfo;
   $("btn-info-cancel").onclick = () => renderInfoPanel(currentModel);
-  $("btn-export").onclick = () => window.open(`/api/models/${currentId}/export`, "_blank");
+  $("btn-exp-gim").onclick = () => { if (!currentId) return; downloadFile("/api/models/" + currentId + "/export", (currentModel?.name || "model") + ".gim"); };
+  $("btn-exp-obj").onclick = () => { if (!currentId) return; downloadFile("/api/models/" + currentId + "/export/mesh?format=obj", (currentModel?.name || "model") + ".obj"); };
+  $("btn-exp-stl").onclick = () => { if (!currentId) return; downloadFile("/api/models/" + currentId + "/export/mesh?format=stl", (currentModel?.name || "model") + ".stl"); };
+  $("btn-exp-las").onclick = () => { if (!currentId) return; downloadFile("/api/models/" + currentId + "/export/pointcloud?format=las&quality=medium", (currentModel?.name || "pointcloud") + ".las"); };
+  $("btn-exp-txt").onclick = () => { if (!currentId) return; downloadFile("/api/models/" + currentId + "/export/pointcloud?format=txt&quality=medium", (currentModel?.name || "pointcloud") + ".txt"); };
+  $("btn-exp-custom").onclick = () => { if (!currentId) { toast("请先选择模型"); return; } openModalDialog("dlg-export-pc"); };
   $("btn-delete").onclick = deleteModel;
   $("btn-version").onclick = createVersion;
-  // STL 部件点击高亮（事件委托）
   panel.querySelectorAll(".stl-item").forEach((el) => {
     el.onclick = () => toggleStlPart(el.dataset.path);
   });
@@ -954,19 +1325,17 @@ function renderInfoPanel(model) {
 
 async function refreshVersions() {
   if (!currentId) return;
-  const versions = await (await api(`/api/models/${currentId}/versions`)).json();
+  const versions = await (await api("/api/models/" + currentId + "/versions")).json();
   const ul = $("version-list");
   if (!ul) return;
   ul.innerHTML = versions.length
-    ? versions.map((v) =>
-        `<li><b>${escapeHtml(v.version)}</b> ${escapeHtml(v.note)}<span class="v-time">${escapeHtml((v.created_at || "").replace("T", " "))}</span></li>`
-      ).join("")
+    ? versions.map((v) => '<li><b>' + escapeHtml(v.version) + '</b> ' + escapeHtml(v.note) + '<span class="v-time">' + escapeHtml((v.created_at || "").replace("T", " ")) + '</span></li>').join("")
     : '<li style="color:#aab">暂无版本快照</li>';
 }
 
 async function createVersion() {
   try {
-    await api(`/api/models/${currentId}/versions`, {
+    await api("/api/models/" + currentId + "/versions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ note: ($("version-note")?.value || "").trim() }),
@@ -977,346 +1346,288 @@ async function createVersion() {
 }
 
 async function deleteModel() {
-  if (!confirm("确认删除该模型及其文件？此操作不可恢复。")) return;
+  if (!currentId || !confirm("确定删除模型「" + currentModel.name + "」？")) return;
   try {
     await api("/api/models/" + currentId, { method: "DELETE" });
     toast("已删除");
     currentId = null; currentModel = null;
-    $("detail").classList.remove("show");
     $("placeholder").style.display = "block";
+    $("detail").classList.remove("show");
     $("info-panel").innerHTML = '<p class="placeholder">选中模型后此处显示属性与操作</p>';
-    await refreshList();
-  } catch (e) { toast("失败：" + e.message); }
+    await refreshList(1);
+    await loadFilterOptions();
+  } catch (e) { toast("删除失败：" + e.message); }
 }
 
-// ---------- 新建 / 导入 ----------
-$("btn-new").onclick = () => { $("dlg-new").showModal(); $("n-name").focus(); };
-$("n-cancel").onclick = () => $("dlg-new").close();
 $("n-submit").onclick = async () => {
   const name = $("n-name").value.trim();
-  if (!name) { toast("名称不能为空"); return; }
+  if (!name) { toast("名称必填"); return; }
+  const payload = {
+    name,
+    category: $("n-category").value,
+    code: $("n-code").value.trim() || undefined,
+    model_type: $("n-type").value,
+    voltage_level: $("n-voltage").value.trim() || undefined,
+    description: $("n-desc").value.trim() || undefined,
+  };
   try {
-    const resp = await api("/api/models", {
+    const res = await api("/api/models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        category: $("n-category").value,
-        code: $("n-code").value.trim(),
-        model_type: $("n-type").value,
-        voltage_level: $("n-voltage").value.trim(),
-        description: $("n-desc").value.trim(),
-      }),
+      body: JSON.stringify(payload),
     });
-    const created = await resp.json();
+    const created = await res.json();
     $("dlg-new").close();
-    ["n-name", "n-code", "n-voltage", "n-desc"].forEach((id) => ($(id).value = ""));
     toast("创建成功");
-    currentId = created.id;
-    await refreshList();
+    await refreshList(1);
     await selectModel(created.id);
-  } catch (e) { toast("失败：" + e.message); }
+  } catch (e) { toast("创建失败：" + e.message); }
 };
 
-// ---------- 导入遮罩 ----------
-let importTimer = null;
-function showImportLoading(text) {
-  $("import-mask").classList.add("show");
-  $("load-text").textContent = text || "正在导入模型包…";
-  const t0 = Date.now();
-  $("load-sub").textContent = "已耗时 0 秒";
-  clearInterval(importTimer);
-  importTimer = setInterval(() => {
-    $("load-sub").textContent = `已耗时 ${Math.round((Date.now() - t0) / 1000)} 秒（工程大包约需 1-5 分钟）`;
-  }, 1000);
-}
-function hideImportLoading() {
-  $("import-mask").classList.remove("show");
-  clearInterval(importTimer);
-}
+$("imp-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const file = $("imp-file").files[0];
+  if (!file) { toast("请选择文件"); return; }
+  const fd = new FormData();
+  fd.append("file", file);
 
-function uploadWithProgress(form, onProgress) {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/models/import");
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(err); }
-      } else {
-        let detail = xhr.statusText;
-        try { detail = JSON.parse(xhr.responseText).detail || detail; } catch (e) { /* 忽略 */ }
-        reject(new Error(detail));
-      }
-    };
-    xhr.onerror = () => reject(new Error("网络错误"));
-    xhr.send(form);
-  });
-}
+  const q = new URLSearchParams();
+  const customName = ($("imp-name").value || "").trim();
+  const customVoltage = ($("imp-voltage").value || "").trim();
+  if (customName) q.set("name", customName);
+  if (customVoltage) q.set("voltage_level", customVoltage);
 
-$("btn-import").onclick = () => $("import-file").click();
-$("import-file").onchange = async () => {
-  const file = $("import-file").files[0];
-  if (!file) return;
-  const big = file.size > 1024 * 1024;
-  showImportLoading("正在上传模型包…");
-  $("btn-import").disabled = true;
+  const btn = $("imp-submit");
+  btn.disabled = true;
+
+  const overlay = $("imp-overlay");
+  const progressText = $("imp-progress-text");
+  const percentText = $("imp-percent");
+  const timerText = $("imp-timer");
+  overlay.classList.add("show");
+  percentText.textContent = "0%";
+  progressText.textContent = "准备上传…";
+  const startTime = Date.now();
+  const timerId = setInterval(() => {
+    const sec = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(sec / 60), s = sec % 60;
+    timerText.textContent = "已耗时 " + m + "分" + (s < 10 ? "0" : "") + s + "秒";
+  }, 500);
+
   try {
-    const form = new FormData();
-    form.append("file", file);
-    const result = await uploadWithProgress(form, (p) => {
-      $("load-text").textContent = `正在上传模型包 ${Math.round(p * 100)}%`;
-    });
-    showImportLoading("服务端解析中（解包 / 装配 / 落库）…");
-    toast(`导入成功：${result.created.length} 个模型`);
-    currentId = result.created[0]?.id || null;
-    await refreshList();
-    if (currentId) await selectModel(currentId);
-  } catch (e) {
-    toast("导入失败：" + e.message);
-  }
-  hideImportLoading();
-  $("btn-import").disabled = false;
-  $("import-file").value = "";
-};
-
-// ---------- 分类管理（电力领域 × 设备类型，下拉面板内嵌添加/删除） ----------
-let catTree = [];
-let equipmentTypes = [];
-let voltageOptions = [];
-
-function makeTypeDropdown(containerId, opts) {
-  const root = $(containerId);
-  root.classList.add("dd");
-  root.innerHTML = '<div class="dd-trigger" role="button" aria-haspopup="listbox" aria-expanded="false"><span></span></div><div class="dd-panel" role="listbox"></div>';
-  const trigger = root.querySelector(".dd-trigger");
-  const triggerText = root.querySelector(".dd-trigger span");
-  const panel = root.querySelector(".dd-panel");
-  const mode = opts.mode || "single";
-  let values = mode === "multiple" ? [] : "";
-
-  function selectedList() { return mode === "multiple" ? values : (values ? [values] : []); }
-  function isSelected(v) { return mode === "multiple" ? values.includes(v) : values === v; }
-  function triggerLabel() {
-    const sel = selectedList();
-    if (!sel.length) return "✅" + opts.allLabel;
-    if (mode === "multiple" && sel.length > 1) return `✅已选 ${sel.length} 项`;
-    return "✅" + sel[0];
-  }
-
-  function render() {
-    const options = opts.getOptions();
-    // “全部”状态（未选择任何项）下所有选项显示为已选勾选态
-    const all = !selectedList().length;
-    panel.innerHTML =
-      options.map((o) =>
-        `<div class="dd-opt${all || isSelected(o) ? " active" : ""}" data-v="${escapeHtml(o)}" role="option" aria-selected="${all || isSelected(o)}">` +
-        `<span class="dd-check">${all || isSelected(o) ? "✓" : ""}</span><span class="dd-label">${escapeHtml(o)}</span></div>`
-      ).join("") +
-      (opts.onAdd || opts.onDelete
-        ? '<div class="dd-actions">' +
-          (opts.onAdd ? '<button class="dd-add">＋ 添加…</button>' : "") +
-          (opts.onDelete ? `<button class="dd-del"${selectedList().length ? "" : " disabled"}>✕ 删除选中</button>` : "") +
-          "</div>"
-        : "");
-    panel.querySelectorAll(".dd-opt").forEach((el) => {
-      el.onclick = () => {
-        const v = el.dataset.v;
-        if (mode === "multiple") {
-          values = values.includes(v) ? values.filter((x) => x !== v) : [...values, v];
-        } else {
-          values = values === v ? "" : v;
+    const xhr = new XMLHttpRequest();
+    const url = "/api/models/import?" + q.toString();
+    const result = await new Promise((resolve, reject) => {
+      xhr.upload.onprogress = (ev) => {
+        if (ev.lengthComputable) {
+          const pct = Math.round((ev.loaded / ev.total) * 100);
+          percentText.textContent = pct + "%";
+          progressText.textContent = pct < 100 ? "正在上传 GIM 文件…" : "上传完成，正在解包并构建空间拓扑…";
         }
-        close(); render(); if (opts.onChange) opts.onChange();
       };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { resolve(JSON.parse(xhr.responseText)); } catch (err) { reject(new Error("响应解析失败")); }
+        } else {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.detail || "导入失败"));
+          } catch { reject(new Error("导入失败: " + xhr.statusText)); }
+        }
+      };
+      xhr.onerror = () => reject(new Error("网络错误，导入中断"));
+      xhr.open("POST", url);
+      xhr.send(fd);
     });
-    const addBtn = panel.querySelector(".dd-add");
-    if (addBtn) addBtn.onclick = (e) => { e.stopPropagation(); opts.onAdd(); };
-    const delBtn = panel.querySelector(".dd-del");
-    if (delBtn) delBtn.onclick = (e) => {
-      e.stopPropagation();
-      if (opts.onDelete) selectedList().forEach((v) => opts.onDelete(v));
-    };
-    triggerText.textContent = triggerLabel();
-    trigger.setAttribute("aria-expanded", root.classList.contains("open") ? "true" : "false");
+
+    clearInterval(timerId);
+    overlay.classList.remove("show");
+    $("dlg-import").close();
+    toast("成功导入 " + (result.created?.length || 1) + " 个资产");
+    await refreshList(1);
+    await loadFilterOptions();
+    if (result.created?.[0]?.id) await selectModel(result.created[0].id);
+  } catch (err) {
+    clearInterval(timerId);
+    overlay.classList.remove("show");
+    toast("导入失败：" + err.message);
+  } finally {
+    btn.disabled = false;
   }
-  function close() { root.classList.remove("open"); trigger.setAttribute("aria-expanded", "false"); }
-  trigger.onclick = () => {
-    root.classList.toggle("open");
-    trigger.setAttribute("aria-expanded", root.classList.contains("open") ? "true" : "false");
-    document.querySelectorAll(".dd.open").forEach((d) => { if (d !== root) d.classList.remove("open"); });
-    render();
-  };
-  document.addEventListener("click", (e) => { if (!root.contains(e.target)) close(); });
-  return {
-    render,
-    get value() { return values; },
-    set(v) { values = v; render(); },
-    clear() { values = mode === "multiple" ? [] : ""; render(); },
-  };
-}
-
-const ddDomain = makeTypeDropdown("dd-domain", {
-  mode: "multiple",
-  allLabel: "全部大类",
-  getOptions: () => catTree,
-  onChange: () => refreshList(1),
-  onAdd: () => addType("domain"),
-  onDelete: (v) => deleteType("domain", v),
-});
-
-const ddEtype = makeTypeDropdown("dd-etype", {
-  mode: "multiple",
-  allLabel: "全部设备类型",
-  getOptions: () => equipmentTypes,
-  onChange: () => refreshList(1),
-  onAdd: () => addType("etype"),
-  onDelete: (v) => deleteType("etype", v),
-});
-
-const ddVoltage = makeTypeDropdown("dd-voltage", {
-  mode: "single",
-  allLabel: "全部电压等级",
-  getOptions: () => voltageOptions,
-  onChange: () => refreshList(1),
-});
+};
 
 async function refreshCategories() {
   catTree = await (await api("/api/categories")).json();
-  equipmentTypes = await (await api("/api/equipment-types")).json();
-  // 当前选中值若已被删除则回退到「全部」
-  if ((ddDomain.value || []).some((v) => !catTree.includes(v))) ddDomain.clear();
-  if ((ddEtype.value || []).some((v) => !equipmentTypes.includes(v))) ddEtype.clear();
-  ddDomain.render();
-  ddEtype.render();
-  $("n-category").innerHTML = catTree.map((n) => `<option>${escapeHtml(n)}</option>`).join("");
-  return catTree;
+  const sel = $("n-category");
+  const validCats = Array.isArray(catTree) ? catTree : [];
+  sel.innerHTML = validCats.map((c) => '<option value="' + escapeHtml(c) + '">' + escapeHtml(c) + '</option>').join("");
 }
+
+function makeTypeDropdown({ btnId, panelId, title, options, isSelected, onToggle, onClear, renderFooter }) {
+  const btn = $(btnId);
+  const panel = $(panelId);
+  let open = false;
+  function render() {
+    const rawOpts = options();
+    const opts = Array.isArray(rawOpts) ? rawOpts : [];
+    const selCount = opts.filter((o) => isSelected(o)).length;
+    const allSelected = selCount === opts.length && opts.length > 0;
+    const noneSelected = selCount === 0;
+    let summaryText = title;
+    if (allSelected) summaryText = title + " (全部)";
+    else if (selCount === 1) summaryText = title + ": " + opts.find((o) => isSelected(o));
+    else if (selCount > 1) summaryText = title + " (" + selCount + "项)";
+    btn.textContent = summaryText;
+    btn.classList.toggle("active", !allSelected && !noneSelected);
+    panel.innerHTML =
+      '<div class="type-dropdown-head"><span>' + escapeHtml(title) + '</span><button type="button" class="type-dropdown-clear">全选</button></div>' +
+      '<div class="type-dropdown-list">' +
+        opts.map((o) => {
+          const checked = isSelected(o);
+          return '<div class="type-dropdown-item ' + (checked ? "selected" : "") + '" data-val="' + escapeHtml(o) + '"><span class="type-chk">' + (checked ? "✓" : "") + '</span><span class="type-lbl">' + escapeHtml(o) + '</span></div>';
+        }).join("") +
+      '</div>' +
+      (renderFooter ? renderFooter() : "");
+    panel.querySelector(".type-dropdown-clear").onclick = (e) => { e.stopPropagation(); onClear(); render(); };
+    panel.querySelectorAll(".type-dropdown-item").forEach((it) => { it.onclick = (e) => { e.stopPropagation(); onToggle(it.dataset.val); render(); }; });
+    if (renderFooter) attachFooterEvents(panel);
+  }
+  function attachFooterEvents(p) {
+    const addBtn = p.querySelector(".type-add-btn");
+    const addInput = p.querySelector(".type-add-input");
+    if (addBtn && addInput) {
+      addBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const v = addInput.value.trim();
+        if (!v) return;
+        addInput.value = "";
+        await handleAddOption(title, v);
+      };
+    }
+    const delBtn = p.querySelector(".type-del-btn");
+    if (delBtn) {
+      delBtn.onclick = async (e) => { e.stopPropagation(); await handleDeleteSelected(title); };
+    }
+  }
+  function toggle(show) {
+    open = typeof show === "boolean" ? show : !open;
+    panel.classList.toggle("open", open);
+    if (open) {
+      document.querySelectorAll(".type-dropdown-panel").forEach((p) => { if (p !== panel) p.classList.remove("open"); });
+      render();
+    }
+  }
+  btn.onclick = (e) => { e.stopPropagation(); toggle(); };
+  return { render, toggle };
+}
+
+async function handleAddOption(title, val) {
+  try {
+    if (title === "大类") {
+      await api("/api/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: val }) });
+    } else if (title === "设备类型") {
+      await api("/api/equipment-types", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: val }) });
+    }
+    await loadFilterOptions();
+  } catch (e) { toast("添加失败: " + e.message); }
+}
+
+async function handleDeleteSelected(title) {
+  try {
+    if (title === "大类" && selectedCategories.length) {
+      for (const c of selectedCategories) { await api("/api/categories/" + encodeURIComponent(c), { method: "DELETE" }); }
+      selectedCategories = [];
+    } else if (title === "设备类型" && selectedEquipmentTypes.length) {
+      for (const t of selectedEquipmentTypes) { await api("/api/equipment-types/" + encodeURIComponent(t), { method: "DELETE" }); }
+      selectedEquipmentTypes = [];
+    }
+    await loadFilterOptions();
+    await refreshList(1);
+  } catch (e) { toast("删除失败: " + e.message); }
+}
+
+const catDropdown = makeTypeDropdown({
+  btnId: "btn-filter-category", panelId: "panel-filter-category", title: "大类",
+  options: () => Array.isArray(catTree) ? catTree : [],
+  isSelected: (val) => selectedCategories.length === 0 || selectedCategories.includes(val),
+  onToggle: (val) => {
+    const list = Array.isArray(catTree) ? catTree : [];
+    if (selectedCategories.length === 0) selectedCategories = list.filter((c) => c !== val);
+    else if (selectedCategories.includes(val)) { selectedCategories = selectedCategories.filter((c) => c !== val); if (!selectedCategories.length) selectedCategories = []; }
+    else { selectedCategories.push(val); if (selectedCategories.length === list.length) selectedCategories = []; }
+    refreshList(1);
+  },
+  onClear: () => { selectedCategories = []; refreshList(1); },
+  renderFooter: () => '<div class="type-dropdown-foot"><div class="type-add-row"><input class="type-add-input" placeholder="新增领域…"><button type="button" class="type-add-btn">＋</button></div><button type="button" class="type-del-btn">✕ 删除选中</button></div>',
+});
+
+const equipDropdown = makeTypeDropdown({
+  btnId: "btn-filter-equipment", panelId: "panel-filter-equipment", title: "设备类型",
+  options: () => Array.isArray(equipmentTypes) ? equipmentTypes : [],
+  isSelected: (val) => selectedEquipmentTypes.length === 0 || selectedEquipmentTypes.includes(val),
+  onToggle: (val) => {
+    const list = Array.isArray(equipmentTypes) ? equipmentTypes : [];
+    if (selectedEquipmentTypes.length === 0) selectedEquipmentTypes = list.filter((t) => t !== val);
+    else if (selectedEquipmentTypes.includes(val)) { selectedEquipmentTypes = selectedEquipmentTypes.filter((t) => t !== val); if (!selectedEquipmentTypes.length) selectedEquipmentTypes = []; }
+    else { selectedEquipmentTypes.push(val); if (selectedEquipmentTypes.length === list.length) selectedEquipmentTypes = []; }
+    refreshList(1);
+  },
+  onClear: () => { selectedEquipmentTypes = []; refreshList(1); },
+  renderFooter: () => '<div class="type-dropdown-foot"><div class="type-add-row"><input class="type-add-input" placeholder="新增设备类型…"><button type="button" class="type-add-btn">＋</button></div><button type="button" class="type-del-btn">✕ 删除选中</button></div>',
+});
+
+const voltageDropdown = makeTypeDropdown({
+  btnId: "btn-filter-voltage", panelId: "panel-filter-voltage", title: "电压等级",
+  options: () => Array.isArray(voltageOptions) ? voltageOptions : [],
+  isSelected: (val) => selectedVoltageLevel === "" || selectedVoltageLevel === val,
+  onToggle: (val) => { selectedVoltageLevel = selectedVoltageLevel === val ? "" : val; refreshList(1); },
+  onClear: () => { selectedVoltageLevel = ""; refreshList(1); },
+});
+
+document.addEventListener("click", () => {
+  document.querySelectorAll(".type-dropdown-panel").forEach((p) => p.classList.remove("open"));
+});
 
 async function loadFilterOptions() {
   const data = await (await api("/api/filter-options")).json();
+  catTree = data.categories || [];
+  equipmentTypes = data.equipment_types || [];
   voltageOptions = data.voltage_levels || [];
-  // 保留当前模型不在预置列表内的电压值
-  if (currentModel && currentModel.voltage_level && !voltageOptions.includes(currentModel.voltage_level)) {
-    voltageOptions = [...voltageOptions, currentModel.voltage_level];
+  catDropdown.render();
+  equipDropdown.render();
+  voltageDropdown.render();
+}
+
+$("btn-quick-export-mesh").onclick = () => {
+  if (!currentId) { toast("请先从左侧选择一个模型"); return; }
+  downloadFile("/api/models/" + currentId + "/export/mesh?format=obj", (currentModel?.name || "model") + ".obj");
+  toast("已开始导出 3D 模型 (.obj)");
+};
+$("btn-quick-export-pc").onclick = () => {
+  if (!currentId) { toast("请先从左侧选择一个模型"); return; }
+  openModalDialog("dlg-export-pc");
+};
+
+$("exp-pc-quality").onchange = () => {
+  $("exp-pc-custom-row").style.display = $("exp-pc-quality").value === "custom" ? "block" : "none";
+};
+$("exp-pc-cancel").onclick = () => closeModalDialog("dlg-export-pc");
+$("exp-pc-confirm").onclick = () => {
+  if (!currentId) { toast("请先选择模型"); return; }
+  const fmt = $("exp-pc-fmt").value;
+  const quality = $("exp-pc-quality").value;
+  const noise = $("exp-pc-noise").value;
+  const augment = $("exp-pc-augment").checked;
+  let url = "/api/models/" + currentId + "/export/pointcloud?format=" + fmt + "&quality=" + quality + "&noise=" + noise + "&augment=" + augment;
+  if (quality === "custom") {
+    const cnt = parseInt($("exp-pc-count").value, 10) || 10000;
+    url += "&count=" + cnt;
   }
-  ddVoltage.render();
-}
-
-// 添加/删除类型（kind: domain / etype）
-async function addType(kind) {
-  const label = kind === "domain" ? "电力领域" : "设备类型";
-  const name = prompt(`新增${label}名称：`);
-  if (!name || !name.trim()) return;
-  try {
-    const url = kind === "domain" ? "/api/categories" : "/api/equipment-types";
-    await api(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: name.trim() }),
-    });
-    toast(`已添加${label}：${name.trim()}`);
-    await refreshCategories();
-    // 自动选中新项并筛选
-    const dd = kind === "domain" ? ddDomain : ddEtype;
-    if (dd.value && dd.value.includes) dd.set([...dd.value, name.trim()]);
-    else dd.set(name.trim());
-    await refreshList(1);
-  } catch (e) { toast("失败：" + e.message); }
-}
-
-async function deleteType(kind, name) {
-  const label = kind === "domain" ? "电力领域" : "设备类型";
-  if (!name) return;
-  if (!confirm(`删除${label}「${name}」？使用中的模型将被置为未分类。`)) return;
-  try {
-    const url = kind === "domain"
-      ? "/api/categories/" + encodeURIComponent(name)
-      : "/api/equipment-types/" + encodeURIComponent(name);
-    await api(url, { method: "DELETE" });
-    toast(`已删除${label}：${name}`);
-    await refreshCategories();
-    await refreshList(1);
-  } catch (e) { toast("失败：" + e.message); }
-}
-
-function sourceBadge(m) {
-  if (m.source === "gim") return '<span class="src-badge gim">GIM</span>';
-  if (m.source === "zip") return '<span class="src-badge">ZIP</span>';
-  return "";
-}
-
-$("btn-cats").onclick = async () => {
-  await renderCatList();
-  $("dlg-cats").showModal();
-};
-$("c-close").onclick = () => $("dlg-cats").close();
-
-async function renderCatList() {
-  await refreshCategories();
-  $("cat-list").innerHTML = catTree.map((n) =>
-    `<li>▸ ${escapeHtml(n)} <button class="danger cat-del" data-name="${escapeHtml(n)}" style="float:right;padding:0 6px;font-size:10px">删</button></li>`
-  ).join("");
-  $("et-list").innerHTML = equipmentTypes.map((n) =>
-    `<li>▸ ${escapeHtml(n)} <button class="danger et-del" data-name="${escapeHtml(n)}" style="float:right;padding:0 6px;font-size:10px">删</button></li>`
-  ).join("");
-  $("cat-list").querySelectorAll(".cat-del").forEach((el) => {
-    el.onclick = async () => {
-      const name = el.dataset.name;
-      if (!confirm(`删除领域「${name}」？使用该领域的模型将被置为未分类。`)) return;
-      try {
-        await api("/api/categories/" + encodeURIComponent(name), { method: "DELETE" });
-        await renderCatList();
-        await refreshList(1);
-      } catch (e) { toast("失败：" + e.message); }
-    };
-  });
-  $("et-list").querySelectorAll(".et-del").forEach((el) => {
-    el.onclick = async () => {
-      const name = el.dataset.name;
-      if (!confirm(`删除设备类型「${name}」？使用该类型的模型将被置为未分类。`)) return;
-      try {
-        await api("/api/equipment-types/" + encodeURIComponent(name), { method: "DELETE" });
-        await renderCatList();
-        await refreshList(1);
-      } catch (e) { toast("失败：" + e.message); }
-    };
-  });
-}
-
-$("c-add").onclick = async () => {
-  const name = $("c-name").value.trim();
-  if (!name) { toast("领域名称不能为空"); return; }
-  try {
-    await api("/api/categories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    $("c-name").value = "";
-    toast("已添加领域：" + name);
-    await renderCatList();
-  } catch (e) { toast("失败：" + e.message); }
+  downloadFile(url, (currentModel?.name || "pointcloud") + "." + fmt);
+  closeModalDialog("dlg-export-pc");
+  toast("已开始生成并下载 AI 训练点云数据");
 };
 
-$("et-add").onclick = async () => {
-  const name = $("et-name").value.trim();
-  if (!name) { toast("设备类型名称不能为空"); return; }
-  try {
-    await api("/api/equipment-types", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
-    });
-    $("et-name").value = "";
-    toast("已添加设备类型：" + name);
-    await renderCatList();
-  } catch (e) { toast("失败：" + e.message); }
-};
-
-// ---------- 基本信息直接编辑 ----------
 async function saveBasicInfo() {
   if (!currentModel) return;
   const patch = {
@@ -1340,17 +1651,55 @@ async function saveBasicInfo() {
   }
 }
 
-// ---------- 搜索 / 筛选 ----------
 $("search").addEventListener("keydown", (ev) => { if (ev.key === "Enter") refreshList(1); });
 
-// ---------- 启动 ----------
+
 (async function init() {
   try {
-    await refreshCategories();
-    await loadFilterOptions();
     await refreshList();
   } catch (e) {
-    toast("加载失败：" + e.message);
+    console.error("refreshList err:", e);
+  }
+  try {
+    await refreshCategories();
+  } catch (e) {
+    console.error("refreshCategories err:", e);
+  }
+  try {
+    await loadFilterOptions();
+  } catch (e) {
+    console.error("loadFilterOptions err:", e);
+  }
+  try {
+    initWireWebGL();
+  } catch (e) {
+    console.error("initWireWebGL err:", e);
+  }
+  const urlParams = new URLSearchParams(window.location.search);
+  const targetModelId = urlParams.get("model");
+  const targetMode = urlParams.get("mode");
+  if (targetMode && ["shaded", "wireframe", "hybrid"].includes(targetMode)) {
+    currentRenderMode = targetMode;
+    document.querySelectorAll("#tab-wire .mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === targetMode));
+  }
+  if (targetModelId) {
+    const matchedLi = document.querySelector('#model-list li[data-id="' + targetModelId + '"]') ||
+      Array.from(document.querySelectorAll("#model-list li")).find((l) => l.innerText.includes(targetModelId));
+    const realId = matchedLi ? matchedLi.dataset.id : targetModelId;
+    try {
+      await selectModel(realId);
+      return;
+    } catch (e) {
+      console.error("selectModel from param err:", e);
+    }
+  }
+  const firstLi = document.querySelector("#model-list li[data-id]");
+  if (firstLi) {
+    try {
+      await selectModel(firstLi.dataset.id);
+    } catch (e) {
+      console.error("selectModel err:", e);
+    }
   }
 })();
 

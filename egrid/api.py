@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from .models import ModelAsset, ModelQuery, ModelVersion, PointCloudSample
-from .render import render_model_svg, sample_model_pointcloud
+from .render import POINTCLOUD_QUALITY_COUNTS, render_model_svg, sample_model_pointcloud
 from .service import ModelService
 
 INDEX_HTML = Path(__file__).parent / "static" / "index.html"
@@ -213,6 +213,54 @@ async def import_gim(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         Path(tmp_path).unlink(missing_ok=True)
+
+
+@app.get("/api/models/{model_id}/export/mesh")
+def export_model_mesh(
+    model_id: str,
+    format: str = Query("obj", pattern="^(obj|stl)$"),
+):
+    try:
+        data, filename, media_type = service.export_mesh(model_id, fmt=format)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/models/{model_id}/export/pointcloud")
+def export_model_pointcloud(
+    model_id: str,
+    format: str = Query("las", pattern="^(las|txt)$"),
+    quality: str = Query("medium", pattern="^(low|medium|high|custom)$"),
+    count: Optional[int] = Query(None, ge=1, le=100000),
+    noise: float = Query(0.0, ge=0.0, le=1.0),
+    augment: bool = Query(False),
+    seed: Optional[int] = Query(None),
+):
+    if count is None:
+        target_count = POINTCLOUD_QUALITY_COUNTS.get(quality, 2000)
+    else:
+        target_count = count
+    try:
+        data, filename, media_type = service.export_pointcloud_dataset(
+            model_id,
+            fmt=format,
+            count=target_count,
+            noise=noise,
+            augment=augment,
+            seed=seed,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/models/{model_id}/export")

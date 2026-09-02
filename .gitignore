@@ -9,3 +9,6 @@ data/files/
 .coverage
 dist/
 build/
+tmp_chrome_profile/
+screenshot_*.png
+*.log
