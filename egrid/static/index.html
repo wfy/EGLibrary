@@ -1736,6 +1736,7 @@ $("imp-form").onsubmit = async (e) => {
 
   const btn = $("imp-submit");
   btn.disabled = true;
+  try { $('dlg-import').close(); } catch (_) {}
 
   const overlay = $("imp-overlay");
   const progressText = $("imp-progress-text");
@@ -1745,10 +1746,20 @@ $("imp-form").onsubmit = async (e) => {
   percentText.textContent = "0%";
   progressText.textContent = "准备上传…";
   const startTime = Date.now();
+  let uploadFinished = false;
   const timerId = setInterval(() => {
     const sec = Math.floor((Date.now() - startTime) / 1000);
     const m = Math.floor(sec / 60), s = sec % 60;
     timerText.textContent = "已耗时 " + m + "分" + (s < 10 ? "0" : "") + s + "秒";
+    if (uploadFinished) {
+      if (sec < 10) {
+        progressText.textContent = '上传完成，正在解构 GIM 专有容器与三维几何…';
+      } else if (sec < 25) {
+        progressText.textContent = '正在按国网标准聚合变电站间隔与电气主设备…';
+      } else {
+        progressText.textContent = '正在构建三维空间装配姿态与数据库索引…';
+      }
+    }
   }, 500);
 
   try {
@@ -1759,7 +1770,12 @@ $("imp-form").onsubmit = async (e) => {
         if (ev.lengthComputable) {
           const pct = Math.round((ev.loaded / ev.total) * 100);
           percentText.textContent = pct + "%";
-          progressText.textContent = pct < 100 ? "正在上传 GIM 文件…" : "上传完成，正在解包并构建空间拓扑…";
+          if (pct < 100) {
+            progressText.textContent = '正在上传 GIM 文件…';
+          } else {
+            uploadFinished = true;
+            progressText.textContent = '上传完成，正在解构 GIM 专有容器与三维几何…';
+          }
         }
       };
       xhr.onload = () => {

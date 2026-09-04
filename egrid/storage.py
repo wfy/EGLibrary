@@ -271,6 +271,52 @@ class ModelRepository:
             )
         return asset
 
+    def create_models_bulk(self, assets: List[ModelAsset]) -> List[ModelAsset]:
+        '''在一个事务中高效批量插入模型资产。'''
+        if not assets:
+            return []
+        for asset in assets:
+            asset.id = asset.id or new_guid()
+            asset.touch()
+        with self._lock, self._conn:
+            for asset in assets:
+                self._conn.execute(
+                    """
+                    INSERT INTO models (
+                        id, name, code, category, subcategory, source, origin,
+                        model_type, stage, specialty, voltage_level,
+                        version, description, tags, attributes, files, geometry,
+                        parent_id, level, created_at, updated_at, created_by, extra
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        asset.id,
+                        asset.name,
+                        asset.code,
+                        asset.category,
+                        asset.subcategory,
+                        asset.source,
+                        _json_dumps(asset.origin),
+                        asset.model_type.value,
+                        asset.stage.value,
+                        asset.specialty.value,
+                        asset.voltage_level,
+                        asset.version,
+                        asset.description,
+                        _json_dumps(asset.tags),
+                        _json_dumps([a.model_dump() for a in asset.attributes]),
+                        _json_dumps([f.model_dump() for f in asset.files]),
+                        _json_dumps(asset.geometry.model_dump()),
+                        asset.parent_id,
+                        asset.level,
+                        asset.created_at,
+                        asset.updated_at,
+                        asset.created_by,
+                        _json_dumps(asset.extra),
+                    ),
+                )
+        return assets
+
     def get_model(self, model_id: str) -> Optional[ModelAsset]:
         with self._lock:
             row = self._conn.execute(

@@ -376,9 +376,6 @@ class ModelService:
             if name and is_root:
                 asset.name = name
             asset.voltage_level = asset.voltage_level or voltage_level
-            # 新设备类型自动注册（筛选清单随导入扩展）
-            if asset.subcategory:
-                self.repo.upsert_equipment_type(asset.subcategory)
             if is_root:
                 # 原包只存档一份（挂根模型），子模型不重复落盘
                 model_file = self._store_uploaded_file(asset.id, src.name, content)
@@ -386,8 +383,14 @@ class ModelService:
                 # STL 部件唯一文件落盘（实例矩阵走 extra.stl_parts，多实例共享文件）
                 for rel, blob in stl_files.items():
                     asset.files.append(self._store_uploaded_file(asset.id, rel, blob))
-            created.append(self.repo.create_model(asset))
-        return created
+
+        # 批量注册子设备类型
+        subcats = {a.subcategory for a in assets if a.subcategory}
+        for sub in subcats:
+            self.repo.upsert_equipment_type(sub)
+
+        # 单事务批量入库，消除反复磁盘锁开销
+        return self.repo.create_models_bulk(assets)
 
     def _import_single_file(self, path: Path, name: Optional[str], voltage_level: str) -> ModelAsset:
         content = path.read_bytes()

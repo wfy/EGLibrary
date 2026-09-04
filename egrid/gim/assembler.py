@@ -45,6 +45,33 @@ SUBCATEGORY_MAP = {
     "COMPOSITE": "设备",
 }
 
+# 国网变电站标准电气设备类型映射 (Q/GDW 11810.1 表1)
+SUBSTATION_PRIMARY_DEVICE_MAP = {
+    'OILFILLEDTRANSFORMER': ('变电', '变压器'),
+    'DRYTRANSFORMER': ('变电', '变压器'),
+    'TRANSFORMER': ('变电', '变压器'),
+    'PORCELAINPILLARCIRCUITBREAKER': ('变电', '断路器'),
+    'CIRCUITBREAKER': ('变电', '断路器'),
+    'DISCONNECTINGSWITCH': ('变电', '隔离开关'),
+    'EARTHINGSWITCH': ('变电', '隔离开关'),
+    'COMBINATIONAPPARATUGIS': ('变电', '组合电器GIS'),
+    'COMBINATIONAPPARATUHGIS': ('变电', '组合电器GIS'),
+    'SWITCHCABINET': ('变电', '开关设备'),
+    'ELECTROMAGNETICCURRENTTRANSFORMER': ('变电', '互感器'),
+    'POTENTIALTRANSFORMER': ('变电', '互感器'),
+    'CURRENTTRANSFORMER': ('变电', '互感器'),
+    'LIGHTNINGPROTECTOR': ('变电', '避雷器'),
+    'ARRESTER': ('变电', '避雷器'),
+    'POSTINSULATOR': ('变电', '支柱绝缘子'),
+    'WALLTUBEINSULATOR': ('变电', '穿墙套管'),
+    'DRYREACTOR': ('变电', '变电设备'),
+    'FRAMECAPACITORBANK': ('变电', '变电设备'),
+    'COMPLETESETOFARCSUPPRESSIONCOILANDGROUNDINGTRANSFORMER': ('变电', '变电设备'),
+    'NEUTRALPOINTEQUIPMENT': ('变电', '变电设备'),
+    'SCREENCABINETSANDINSTALLATIONS': ('变电', '屏柜及装置'),
+    'TUBULARBUS': ('变电', '母线'),
+}
+
 
 def _find_entry(files: dict) -> str:
     """定位 CBM 入口：project.cbm 优先，否则第一个 .cbm。"""
@@ -245,7 +272,7 @@ def _collect_geometry(files: dict, dev_path: str, m_parent: list,
                     ))
 
 
-def _build_device_asset(files: dict, cbm_path: str, header: GimHeader) -> ModelAsset:
+def _build_device_asset(files: dict, cbm_path: str, header: GimHeader, *, is_project_child: bool = False) -> ModelAsset:
     """单设备链：cbm → dev → (fam 属性 + 递归几何)。"""
     cbm = _records_cached(files, cbm_path)
     base = Path(cbm_path).parent.as_posix()
@@ -276,7 +303,29 @@ def _build_device_asset(files: dict, cbm_path: str, header: GimHeader) -> ModelA
     _collect_geometry(files, dev_path, m_root, primitives, stl_parts, attributes, set())
 
     fields = extract_asset_fields(attributes)
-    name = header.name or symbol_name or Path(cbm_path).stem
+    dev_type = (dev.get("TYPE") or dev.get("DEVICETYPE") or "").strip()
+    cat_zh, sub_zh = SUBSTATION_PRIMARY_DEVICE_MAP.get(dev_type.upper(), ("", ""))
+    if not sub_zh and symbol_name:
+        for kw, mapped_sub in [
+            ("变压器", "变压器"), ("断路器", "断路器"), ("隔离开关", "隔离开关"),
+            ("互感器", "互感器"), ("避雷器", "避雷器"), ("开关柜", "开关设备"),
+            ("绝缘子", "绝缘子串"), ("电抗器", "变电设备"), ("电容器", "变电设备"),
+            ("保护柜", "屏柜及装置"), ("测控柜", "屏柜及装置"), ("控制屏", "屏柜及装置")
+        ]:
+            if kw in symbol_name:
+                sub_zh = mapped_sub
+                break
+    subcategory = sub_zh or SUBCATEGORY_MAP.get(dev_type.upper(), dev_type)
+    category = cat_zh or category_for_gim_kind(header.kind)
+    if is_project_child:
+        name = symbol_name or sub_zh or dev_type or Path(cbm_path).stem
+    else:
+        name = header.name or symbol_name or sub_zh or dev_type or Path(cbm_path).stem
+
+    if any(c.isdigit() for c in name) and ('x' in name.lower() or 'X' in name) and not any(k in name for k in ('柜', '屏', '器', '变', '开关', '线', '架')):
+        if sub_zh:
+            name = f"{sub_zh} {name}"
+
     description_parts = []
     if header.software:
         description_parts.append(f"来源软件：{header.software}")
@@ -284,10 +333,6 @@ def _build_device_asset(files: dict, cbm_path: str, header: GimHeader) -> ModelA
         description_parts.append(f"组织单位：{header.organization}")
     if header.created_at:
         description_parts.append(f"创建时间：{header.created_at}")
-
-    # 设备类型（subcategory）：DEVICETYPE 映射，未知类型原样保留
-    dev_type = (dev.get("DEVICETYPE") or "").strip()
-    subcategory = SUBCATEGORY_MAP.get(dev_type.upper(), dev_type) if dev_type else ""
 
     extra = {}
     if stl_parts:
@@ -297,7 +342,7 @@ def _build_device_asset(files: dict, cbm_path: str, header: GimHeader) -> ModelA
         name=name,
         code=header.name or symbol_name,
         model_type="device",
-        category=category_for_gim_kind(header.kind),
+        category=category,
         voltage_level=fields.get("voltage_level", ""),
         description="；".join(description_parts) or "GIM 导入",
         attributes=attributes,
@@ -383,11 +428,16 @@ def _assemble_project(files: dict, entry: str, header: GimHeader,
                       fallback_voltage: str = "") -> list:
     """工程聚合导入：根 + F1/F2/F3 层级 + 塔组逐基 + 导线/交叉跨越聚合。"""
     assets: list = []
+    root_name = header.name or "GIM 工程"
+    # 若头部名称有乱码或全问号，回退为清晰名称
+    if "�" in root_name or not root_name.strip():
+        root_name = "变电站工程" if header.kind == "substation" else "输电线路工程"
     root = ModelAsset(
-        name=header.name or "GIM 工程",
-        code=header.name,
+        name=root_name,
+        code=header.name or root_name,
         model_type="line" if header.kind in ("line", "unknown") else "device",
         category=category_for_gim_kind(header.kind),
+        subcategory="变电工程" if header.kind == "substation" else "线路工程",
         source="gim",
         origin=_origin_of(header),
         description="GIM 工程根（聚合导入）",
@@ -468,7 +518,9 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
         source="gim",
         origin=_origin_of(header),
     )
-    assets.append(node)
+    # 变电站工程中，无几何的中间抽象层级不作为平铺模型展示，只保留根工程和核心电气设备
+    if header.kind != "substation":
+        assets.append(node)
 
     stats = {"towers": 0, "wires": 0, "cross": 0, "tower_assets": 0}
     child_inherited = node_voltage or inherited_voltage
@@ -547,19 +599,23 @@ def _handle_group(files: dict, group_path: str, header: GimHeader,
     elif group_type == "CROSS":
         stats["cross"] = 1
     elif records.get("OBJECTMODELPOINTER"):
-        dev_asset = _build_device_asset(files, group_path, header)
-        dev_asset.parent_id = f3_node.id
-        dev_asset.category = "变电"
-        dev_asset.voltage_level = dev_asset.voltage_level or f3_node.voltage_level or inherited_voltage
-        dev_name = dev_asset.name or ""
-        for kw, sub_name in [("变压器", "变压器"), ("断路器", "断路器"), ("隔离开关", "隔离开关"), ("互感器", "互感器"), ("绝缘子", "绝缘子串"), ("避雷器", "避雷器"), ("开关", "开关设备"), ("电容器", "变电设备"), ("电抗器", "变电设备")]:
-            if kw in dev_name:
-                dev_asset.subcategory = sub_name
-                break
-        if not dev_asset.subcategory:
-            dev_asset.subcategory = "设备"
-        assets.append(dev_asset)
-        stats["device_assets"] = stats.get("device_assets", 0) + 1
+        cbm = records
+        dev_ref = cbm.get("OBJECTMODELPOINTER", "")
+        dev_path = _resolve(files, base, dev_ref) if dev_ref else ""
+        dev = _records_cached(files, dev_path) if dev_path in files else {}
+        dtype = (dev.get("TYPE") or "").upper()
+        sname = dev.get("SYMBOLNAME") or ""
+        # 过滤纯粹小铜排导线和长方体垫块（不作为独立模型散落）
+        is_trivial = dtype in ("RECTANGULARBUS", "FLEXIBLECIRCUITCONDUCTOR", "OTHERS") and not any(
+            k in sname for k in ("变压器", "断路器", "开关", "互感器", "避雷器", "电抗器", "电容器", "保护柜")
+        )
+        if not is_trivial:
+            dev_asset = _build_device_asset(files, group_path, header, is_project_child=True)
+            dev_asset.parent_id = f3_node.id
+            dev_asset.category = "变电"
+            dev_asset.voltage_level = dev_asset.voltage_level or f3_node.voltage_level or inherited_voltage
+            assets.append(dev_asset)
+            stats["device_assets"] = stats.get("device_assets", 0) + 1
     return stats
 
 

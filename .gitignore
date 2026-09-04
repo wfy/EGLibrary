@@ -12,3 +12,8 @@ build/
 tmp_chrome_profile/
 screenshot_*.png
 *.log
+tmp_pytest/
+.vscode/
+debug_dev.txt
+gbk_out.txt
+inspect_740_assets.py
