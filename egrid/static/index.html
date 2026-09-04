@@ -229,8 +229,14 @@ window.onunhandledrejection = function(e) { showErr("UNHANDLED REJECTION: " + e.
         <button class="view-btn" data-view="top">俯视</button>
         <button id="btn-wire-reset">重置视角</button>
         <span style="border-left:1px solid #334155;height:16px;margin:0 4px;vertical-align:middle;display:inline-block"></span>
-        <button id="btn-quick-export-mesh" title="导出 OBJ / STL 格式">⇩ 导出 3D 模型</button>
-        <span class="hint">拖拽旋转 · 右键/Shift拖拽平移 · 滚轮缩放 · 点击部件高亮</span>
+       <button id="btn-quick-export-mesh" title="导出 OBJ / STL 格式">⇩ 导出 3D 模型</button>
+        <span style="border-left:1px solid #334155;height:16px;margin:0 4px;vertical-align:middle;display:inline-block"></span>
+        <label style="font-size:11px;color:#94a3b8;display:inline-flex;align-items:center;gap:4px">
+          💥 爆炸图: <input type="range" id="wire-explode-slider" min="0" max="100" value="0" style="width:70px;cursor:pointer">
+          <span id="wire-explode-val">0%</span>
+        </label>
+        <span id="wire-dim-label" style="font-size:11px;color:#38bdf8;font-weight:600;margin-left:8px"></span>
+       <span class="hint">拖拽旋转 · 右键/Shift拖拽平移 · 滚轮缩放 · 点击部件高亮</span>
       </div>
       <canvas id="wire-canvas" class="view3d"></canvas>
     </div>
@@ -547,7 +553,7 @@ const Mat4 = {
 };
 
 const VS_SOURCE = "attribute vec3 a_position; attribute vec3 a_normal; attribute vec4 a_color; uniform mat4 u_mvpMatrix; uniform mat4 u_viewMatrix; uniform vec3 u_lightDir; varying vec4 v_color; varying vec3 v_normal; varying vec3 v_lightDir; void main() { gl_Position = u_mvpMatrix * vec4(a_position, 1.0); v_normal = normalize(mat3(u_viewMatrix) * a_normal); v_lightDir = normalize(mat3(u_viewMatrix) * u_lightDir); v_color = a_color; }";
-const FS_SOURCE = "precision mediump float; varying vec4 v_color; varying vec3 v_normal; varying vec3 v_lightDir; void main() { vec3 n = normalize(v_normal); vec3 l = normalize(v_lightDir); float diff = max(abs(dot(n, l)), 0.20); float intensity = 0.40 + 0.60 * diff; gl_FragColor = vec4(v_color.rgb * intensity, v_color.a); }";
+const FS_SOURCE = "precision mediump float; varying vec4 v_color; varying vec3 v_normal; varying vec3 v_lightDir; void main() { vec3 n = normalize(v_normal); vec3 l = normalize(v_lightDir); float diff = max(abs(dot(n, l)), 0.18); vec3 viewDir = vec3(0.0, 0.0, 1.0); vec3 h = normalize(l + viewDir); float spec = pow(max(abs(dot(n, h)), 0.0), 16.0) * 0.22; float intensity = 0.38 + 0.62 * diff; gl_FragColor = vec4(v_color.rgb * intensity + vec3(spec), v_color.a); }";
 const VS_LINE_SOURCE = "attribute vec3 a_position; attribute vec4 a_color; uniform mat4 u_mvpMatrix; varying vec4 v_color; void main() { gl_Position = u_mvpMatrix * vec4(a_position, 1.0); v_color = a_color; }";
 const FS_LINE_SOURCE = "precision mediump float; varying vec4 v_color; void main() { gl_FragColor = v_color; }";
 
@@ -622,6 +628,230 @@ function generateLineSolidMesh(x1, y1, z1, x2, y2, z2, radius = 50, color = [0.5
   return { posData, normData, colData };
 }
 
+function generatePrimitiveSolidMesh(prim, explodeOffset = [0, 0, 0], isAct = false, anyActive = false) {
+  const meshPos = [], meshNorm = [], meshCol = [];
+  const linePos = [], lineCol = [];
+  const bbox = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
+  function expand(x, y, z) {
+    if (x < bbox.minX) bbox.minX = x; if (x > bbox.maxX) bbox.maxX = x;
+    if (y < bbox.minY) bbox.minY = y; if (y > bbox.maxY) bbox.maxY = y;
+    if (z < bbox.minZ) bbox.minZ = z; if (z > bbox.maxZ) bbox.maxZ = z;
+  }
+
+  const ptype = (prim.type || '').toLowerCase();
+  const pname = (prim.name || '').toLowerCase();
+  let baseR = 0.58, baseG = 0.64, baseB = 0.70, baseA = 1.0;
+
+  if (ptype === 'box') {
+    if (pname.includes('stretched') || (prim.params?.height > 1000 || prim.params?.depth > 1000)) {
+      baseR = 0.34; baseG = 0.48; baseB = 0.62; // 国网变电蓝灰
+    } else {
+      baseR = 0.60; baseG = 0.65; baseB = 0.70; // 浅灰
+    }
+  } else if (ptype === 'cylinder') {
+    if (pname.includes('porcelain') || pname.includes('bushing') || prim.params?.height > 1500) {
+      baseR = 0.90; baseG = 0.93; baseB = 0.95; // 高压瓷套管
+    } else {
+      baseR = 0.55; baseG = 0.62; baseB = 0.68; // 金属导电管
+    }
+  } else if (ptype === 'torus') {
+    baseR = 0.86; baseG = 0.88; baseB = 0.92; // 铝均压环
+  } else if (ptype === 'sphere') {
+    baseR = 0.82; baseG = 0.85; baseB = 0.90; // 金属球
+  } else if (ptype === 'cone') {
+    baseR = 0.45; baseG = 0.50; baseB = 0.55; // 法兰底座
+  }
+
+  if (isAct) {
+    baseR = 0.98; baseG = 0.82; baseB = 0.20; baseA = 1.0;
+  } else if (anyActive) {
+    baseR = 0.25; baseG = 0.30; baseB = 0.38; baseA = 0.35;
+  }
+
+  const rawTriangles = [];
+  const rawLines = [];
+  const params = prim.params || {};
+
+  if (ptype === 'box') {
+    let w = parseFloat(params.width) || 0;
+    let d = parseFloat(params.depth) || 0;
+    let h = parseFloat(params.height) || 0;
+    w = w > 0 ? w : 20; d = d > 0 ? d : 20; h = h > 0 ? h : 20;
+    const x0 = -w / 2, x1 = w / 2;
+    const y0 = -d / 2, y1 = d / 2;
+    const z0 = 0, z1 = h;
+
+    const faces = [
+      [[0, 0, 1], [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+      [[0, 0, -1], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0], [x0, y0, z0]],
+      [[0, -1, 0], [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+      [[0, 1, 0], [x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]],
+      [[-1, 0, 0], [x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]],
+      [[1, 0, 0], [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
+    ];
+    for (const [norm, p1, p2, p3, p4] of faces) {
+      rawTriangles.push({ norm, p1, p2, p3 });
+      rawTriangles.push({ norm, p1, p2: p3, p3: p4 });
+    }
+    rawLines.push(
+      [x0, y0, z0], [x1, y0, z0], [x1, y0, z0], [x1, y1, z0], [x1, y1, z0], [x0, y1, z0], [x0, y1, z0], [x0, y0, z0],
+      [x0, y0, z1], [x1, y0, z1], [x1, y0, z1], [x1, y1, z1], [x1, y1, z1], [x0, y1, z1], [x0, y1, z1], [x0, y0, z1],
+      [x0, y0, z0], [x0, y0, z1], [x1, y0, z0], [x1, y0, z1], [x1, y1, z0], [x1, y1, z1], [x0, y1, z0], [x0, y1, z1]
+    );
+  } else if (ptype === 'cylinder') {
+    const r = parseFloat(params.radius) || 40;
+    const h = parseFloat(params.height) || 100;
+    const segs = 16;
+    for (let i = 0; i < segs; i++) {
+      const a1 = (2 * Math.PI * i) / segs;
+      const a2 = (2 * Math.PI * (i + 1)) / segs;
+      const x1 = r * Math.cos(a1), y1 = r * Math.sin(a1);
+      const x2 = r * Math.cos(a2), y2 = r * Math.sin(a2);
+      const midA = (a1 + a2) / 2;
+      const n1 = [Math.cos(midA), Math.sin(midA), 0];
+      rawTriangles.push({ norm: n1, p1: [x1, y1, 0], p2: [x2, y2, 0], p3: [x2, y2, h] });
+      rawTriangles.push({ norm: n1, p1: [x1, y1, 0], p2: [x2, y2, h], p3: [x1, y1, h] });
+      rawTriangles.push({ norm: [0, 0, -1], p1: [0, 0, 0], p2: [x2, y2, 0], p3: [x1, y1, 0] });
+      rawTriangles.push({ norm: [0, 0, 1], p1: [0, 0, h], p2: [x1, y1, h], p3: [x2, y2, h] });
+      rawLines.push([x1, y1, 0], [x2, y2, 0], [x1, y1, h], [x2, y2, h]);
+      if (i % 4 === 0) rawLines.push([x1, y1, 0], [x1, y1, h]);
+    }
+  } else if (ptype === 'cone') {
+    const r1 = parseFloat(params.radius) || 50;
+    const r2 = parseFloat(params.radius2) || 0;
+    const h = parseFloat(params.height) || 100;
+    const segs = 16;
+    for (let i = 0; i < segs; i++) {
+      const a1 = (2 * Math.PI * i) / segs;
+      const a2 = (2 * Math.PI * (i + 1)) / segs;
+      const x1 = r1 * Math.cos(a1), y1 = r1 * Math.sin(a1);
+      const x2 = r1 * Math.cos(a2), y2 = r1 * Math.sin(a2);
+      const tx1 = r2 * Math.cos(a1), ty1 = r2 * Math.sin(a1);
+      const tx2 = r2 * Math.cos(a2), ty2 = r2 * Math.sin(a2);
+      const midA = (a1 + a2) / 2;
+      const n1 = [Math.cos(midA), Math.sin(midA), 0];
+      rawTriangles.push({ norm: n1, p1: [x1, y1, 0], p2: [x2, y2, 0], p3: [tx2, ty2, h] });
+      rawTriangles.push({ norm: n1, p1: [x1, y1, 0], p2: [tx2, ty2, h], p3: [tx1, ty1, h] });
+      if (r1 > 0) rawTriangles.push({ norm: [0, 0, -1], p1: [0, 0, 0], p2: [x2, y2, 0], p3: [x1, y1, 0] });
+      if (r2 > 0) rawTriangles.push({ norm: [0, 0, 1], p1: [0, 0, h], p2: [tx1, ty1, h], p3: [tx2, ty2, h] });
+      rawLines.push([x1, y1, 0], [x2, y2, 0]);
+      if (r2 > 0) rawLines.push([tx1, ty1, h], [tx2, ty2, h]);
+    }
+  } else if (ptype === 'sphere') {
+    const r = parseFloat(params.radius) || 50;
+    const rings = 10, sectors = 14;
+    for (let i = 0; i < rings; i++) {
+      const lat1 = Math.PI * (-0.5 + i / rings);
+      const lat2 = Math.PI * (-0.5 + (i + 1) / rings);
+      const z1 = r * Math.sin(lat1), zr1 = r * Math.cos(lat1);
+      const z2 = r * Math.sin(lat2), zr2 = r * Math.cos(lat2);
+      for (let j = 0; j < sectors; j++) {
+        const lng1 = (2 * Math.PI * j) / sectors;
+        const lng2 = (2 * Math.PI * (j + 1)) / sectors;
+        const p1 = [zr1 * Math.cos(lng1), zr1 * Math.sin(lng1), z1];
+        const p2 = [zr1 * Math.cos(lng2), zr1 * Math.sin(lng2), z1];
+        const p3 = [zr2 * Math.cos(lng2), zr2 * Math.sin(lng2), z2];
+        const p4 = [zr2 * Math.cos(lng1), zr2 * Math.sin(lng1), z2];
+        const n = [p1[0] / r, p1[1] / r, p1[2] / r];
+        rawTriangles.push({ norm: n, p1, p2, p3 });
+        rawTriangles.push({ norm: n, p1, p2: p3, p3: p4 });
+        if (i % 3 === 0) rawLines.push(p1, p2);
+      }
+    }
+  } else if (ptype === 'torus') {
+    const R = parseFloat(params.major_radius) || 120;
+    const r = parseFloat(params.minor_radius) || 25;
+    const segsR = 12, segsT = 16;
+    function torusPt(u, v) {
+      return [(R + r * Math.cos(v)) * Math.cos(u), (R + r * Math.cos(v)) * Math.sin(u), r * Math.sin(v)];
+    }
+    for (let i = 0; i < segsT; i++) {
+      const u1 = (2 * Math.PI * i) / segsT;
+      const u2 = (2 * Math.PI * (i + 1)) / segsT;
+      for (let j = 0; j < segsR; j++) {
+        const v1 = (2 * Math.PI * j) / segsR;
+        const v2 = (2 * Math.PI * (j + 1)) / segsR;
+        const tp1 = torusPt(u1, v1), tp2 = torusPt(u2, v1), tp3 = torusPt(u2, v2), tp4 = torusPt(u1, v2);
+        const norm = [Math.cos(v1) * Math.cos(u1), Math.cos(v1) * Math.sin(u1), Math.sin(v1)];
+        rawTriangles.push({ norm, p1: tp1, p2: tp2, p3: tp3 });
+        rawTriangles.push({ norm, p1: tp1, p2: tp3, p3: tp4 });
+        if (j === 0) rawLines.push(tp1, tp2);
+      }
+    }
+  }
+
+  const m = prim.transform;
+  const pos = prim.position || [0, 0, 0];
+
+  function tf(p) {
+    let x = p[0], y = p[1], z = p[2];
+    if (m && m.length === 16) {
+      return [
+        m[0]*x + m[4]*y + m[8]*z + m[12] + explodeOffset[0],
+        m[1]*x + m[5]*y + m[9]*z + m[13] + explodeOffset[1],
+        m[2]*x + m[6]*y + m[10]*z + m[14] + explodeOffset[2]
+      ];
+    } else if (m && m.length >= 12) {
+      return [
+        m[0]*x + m[1]*y + m[2]*z + m[3] + explodeOffset[0],
+        m[4]*x + m[5]*y + m[6]*z + m[7] + explodeOffset[1],
+        m[8]*x + m[9]*y + m[10]*z + m[11] + explodeOffset[2]
+      ];
+    }
+    return [x + pos[0] + explodeOffset[0], y + pos[1] + explodeOffset[1], z + pos[2] + explodeOffset[2]];
+  }
+
+  function tfn(n) {
+    let nx = n[0], ny = n[1], nz = n[2];
+    if (m && m.length === 16) {
+      let tx = m[0]*nx + m[4]*ny + m[8]*nz;
+      let ty = m[1]*nx + m[5]*ny + m[9]*nz;
+      let tz = m[2]*nx + m[6]*ny + m[10]*nz;
+      const l = Math.hypot(tx, ty, tz) || 1;
+      return [tx/l, ty/l, tz/l];
+    } else if (m && m.length >= 12) {
+      let tx = m[0]*nx + m[1]*ny + m[2]*nz;
+      let ty = m[4]*nx + m[5]*ny + m[6]*nz;
+      let tz = m[8]*nx + m[9]*ny + m[10]*nz;
+      const l = Math.hypot(tx, ty, tz) || 1;
+      return [tx/l, ty/l, tz/l];
+    }
+    return n;
+  }
+
+  for (const tri of rawTriangles) {
+    const tp1 = tf(tri.p1), tp2 = tf(tri.p2), tp3 = tf(tri.p3);
+    const tn = tfn(tri.norm);
+    expand(tp1[0], tp1[1], tp1[2]);
+    expand(tp2[0], tp2[1], tp2[2]);
+    expand(tp3[0], tp3[1], tp3[2]);
+    for (const p of [tp1, tp2, tp3]) {
+      meshPos.push(p[0], p[1], p[2]);
+      meshNorm.push(tn[0], tn[1], tn[2]);
+      meshCol.push(baseR, baseG, baseB, baseA);
+    }
+  }
+
+  const lineR = isAct ? 0.98 : 0.65;
+  const lineG = isAct ? 0.82 : 0.72;
+  const lineB = isAct ? 0.20 : 0.80;
+  const lineA = isAct ? 1.0 : (anyActive ? 0.25 : 0.75);
+
+  for (let i = 0; i < rawLines.length; i += 2) {
+    if (i + 1 >= rawLines.length) break;
+    const lp1 = tf(rawLines[i]), lp2 = tf(rawLines[i + 1]);
+    linePos.push(lp1[0], lp1[1], lp1[2], lp2[0], lp2[1], lp2[2]);
+    lineCol.push(lineR, lineG, lineB, lineA, lineR, lineG, lineB, lineA);
+  }
+
+  prim._center = [
+    (bbox.minX + bbox.maxX) / 2,
+    (bbox.minY + bbox.maxY) / 2,
+    (bbox.minZ + bbox.maxZ) / 2
+  ];
+  return { meshPos, meshNorm, meshCol, linePos, lineCol, bbox };
+}
+
 let wireGL = null;
 let meshProg = null, lineProg = null;
 let meshVAO = { posBuf: null, normBuf: null, colBuf: null, count: 0 };
@@ -629,6 +859,7 @@ let lineVAO = { posBuf: null, colBuf: null, count: 0 };
 let gridVAO = { posBuf: null, colBuf: null, count: 0 };
 
 let currentRenderMode = "shaded";
+let wireExplodeFactor = 0.0;
 let rawPrimitives = [];
 let stlParts = [];
 let modelBounds = { minX: -100, maxX: 100, minY: -100, maxY: 100, minZ: 0, maxZ: 200, cx: 0, cy: 0, cz: 100, radius: 200 };
@@ -676,12 +907,30 @@ function initWireWebGL() {
   gridVAO.posBuf = gl.createBuffer();
   gridVAO.colBuf = gl.createBuffer();
 
+  const explodeSlider = $('wire-explode-slider');
+  const explodeVal = $('wire-explode-val');
+  if (explodeSlider) {
+    explodeSlider.addEventListener('input', (e) => {
+      wireExplodeFactor = parseInt(e.target.value, 10) / 100.0;
+      if (explodeVal) explodeVal.textContent = `${e.target.value}%`;
+      rebuildWireWebGLBuffers();
+      drawWireScene();
+    });
+  }
+
   let dragging = false, panning = false, lastX = 0, lastY = 0;
+  let downX = 0, downY = 0;
   canvas.addEventListener("mousedown", (e) => {
     dragging = true;
     panning = (e.button === 2 || e.shiftKey);
     lastX = e.clientX; lastY = e.clientY;
+    downX = e.clientX; downY = e.clientY;
     e.preventDefault();
+  });
+  canvas.addEventListener('click', (e) => {
+    if (Math.hypot(e.clientX - downX, e.clientY - downY) > 6) return;
+    const rect = canvas.getBoundingClientRect();
+    pickWirePrimitive(e.clientX - rect.left, e.clientY - rect.top);
   });
   window.addEventListener("mouseup", () => { dragging = false; panning = false; });
   window.addEventListener("mousemove", (e) => {
@@ -723,6 +972,8 @@ function rebuildWireWebGLBuffers() {
     if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
   }
 
+  const anyActive = stlParts.some((p) => p.active) || rawPrimitives.some((p) => p.active);
+
   for (const prim of rawPrimitives) {
     if (prim.type === "line") {
       const [px, py, pz] = prim.position || [0, 0, 0];
@@ -742,10 +993,26 @@ function rebuildWireWebGLBuffers() {
       meshPos.push(...solid.posData);
       meshNorm.push(...solid.normData);
       meshCol.push(...solid.colData);
+    } else if (['box', 'cylinder', 'cone', 'sphere', 'torus'].includes((prim.type || '').toLowerCase())) {
+      let explodeOffset = [0, 0, 0];
+      if (wireExplodeFactor > 0 && modelBounds.radius > 0 && prim._center) {
+        const dirX = prim._center[0] - modelBounds.cx;
+        const dirY = prim._center[1] - modelBounds.cy;
+        const dirZ = prim._center[2] - modelBounds.cz;
+        const dLen = Math.hypot(dirX, dirY, dirZ) || 1;
+        const scale = wireExplodeFactor * modelBounds.radius * 0.9;
+        explodeOffset = [(dirX / dLen) * scale, (dirY / dLen) * scale, (dirZ / dLen) * scale];
+      }
+      const solid = generatePrimitiveSolidMesh(prim, explodeOffset, prim.active, anyActive);
+      meshPos.push(...solid.meshPos);
+      meshNorm.push(...solid.meshNorm);
+      meshCol.push(...solid.meshCol);
+      linePos.push(...solid.linePos);
+      lineCol.push(...solid.lineCol);
+      expandBBox(solid.bbox.minX, solid.bbox.minY, solid.bbox.minZ);
+      expandBBox(solid.bbox.maxX, solid.bbox.maxY, solid.bbox.maxZ);
     }
   }
-
-  const anyActive = stlParts.some((p) => p.active);
 
   for (const part of stlParts) {
     if (!part.triangles) continue;
@@ -940,13 +1207,83 @@ function drawWireScene() {
 
     gl.drawArrays(gl.LINES, 0, lineVAO.count);
   }
+
+  const dimEl = $('wire-dim-label');
+  if (dimEl) {
+    if (modelBounds.radius > 0 && modelBounds.maxX !== -Infinity) {
+      const lx = ((modelBounds.maxX - modelBounds.minX) / 1000).toFixed(2);
+      const ly = ((modelBounds.maxY - modelBounds.minY) / 1000).toFixed(2);
+      const lz = ((modelBounds.maxZ - modelBounds.minZ) / 1000).toFixed(2);
+      dimEl.textContent = `📐 尺寸: ${lx}m × ${ly}m × ${lz}m`;
+    } else {
+      dimEl.textContent = '';
+    }
+  }
 }
 
 wireOrbit.draw = drawWireScene;
 
+function pickWirePrimitive(clickX, clickY) {
+  const canvas = $('wire-canvas');
+  if (!canvas || !rawPrimitives.length) return;
+  const w = canvas.clientWidth || 800;
+  const h = canvas.clientHeight || 600;
+  let closestPrim = null;
+  let minDist = 45;
+  const cy = Math.cos(wireOrbit.yaw), sy = Math.sin(wireOrbit.yaw);
+  const cp = Math.cos(wireOrbit.pitch), sp = Math.sin(wireOrbit.pitch);
+  for (const prim of rawPrimitives) {
+    if (!prim._center) continue;
+    const [wx, wy, wz] = prim._center;
+    const rx = wx - (wireOrbit.target[0] + wireOrbit.panX);
+    const ry = wy - (wireOrbit.target[1] + wireOrbit.panY);
+    const rz = wz - wireOrbit.target[2];
+    const x1 = rx * cy - ry * sy;
+    const y1 = rx * sy + ry * cy;
+    const z1 = rz;
+    const x2 = x1;
+    const y2 = y1 * cp - z1 * sp;
+    const z2 = y1 * sp + z1 * cp;
+    const dist = wireOrbit.distance || 500;
+    const camZ = dist - y2;
+    if (camZ <= 1) continue;
+    const fov = 45 * Math.PI / 180;
+    const aspect = w / h;
+    const f = 1.0 / Math.tan(fov / 2);
+    const projX = (x2 * f / aspect) / camZ;
+    const projY = (z2 * f) / camZ;
+    const screenX = (projX + 1.0) * 0.5 * w;
+    const screenY = (1.0 - projY) * 0.5 * h;
+    const d = Math.hypot(screenX - clickX, screenY - clickY);
+    if (d < minDist) {
+      minDist = d;
+      closestPrim = prim;
+    }
+  }
+  if (closestPrim) {
+    const wasActive = closestPrim.active;
+    rawPrimitives.forEach(p => p.active = false);
+    closestPrim.active = !wasActive;
+    rebuildWireWebGLBuffers();
+    drawWireScene();
+    if (closestPrim.active) {
+      showToast(`已选中构件: ${closestPrim.name || closestPrim.type} (${closestPrim.type})`);
+    }
+  } else if (rawPrimitives.some(p => p.active)) {
+    rawPrimitives.forEach(p => p.active = false);
+    rebuildWireWebGLBuffers();
+    drawWireScene();
+  }
+}
 function loadWireModel(model) {
   rawPrimitives = model.geometry?.primitives || [];
+  rawPrimitives.forEach(p => p.active = false);
   stlParts = [];
+  wireExplodeFactor = 0.0;
+  const slider = $('wire-explode-slider');
+  if (slider) slider.value = 0;
+  const valEl = $('wire-explode-val');
+  if (valEl) valEl.textContent = '0%';
   rebuildWireWebGLBuffers();
   wireOrbit.reset();
   document.querySelectorAll("#tab-wire .view-btn[data-view]").forEach((b) => {

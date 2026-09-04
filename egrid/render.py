@@ -34,6 +34,23 @@ def _apply_transform(
     points: List[Tuple[float, float, float]],
     prim: Primitive,
 ) -> List[Tuple[float, float, float]]:
+    m = prim.transform
+    if m and len(m) == 16:
+        out = []
+        for x, y, z in points:
+            nx = m[0] * x + m[4] * y + m[8] * z + m[12]
+            ny = m[1] * x + m[5] * y + m[9] * z + m[13]
+            nz = m[2] * x + m[6] * y + m[10] * z + m[14]
+            out.append((nx, ny, nz))
+        return out
+    elif m and len(m) >= 12:
+        out = []
+        for x, y, z in points:
+            nx = m[0] * x + m[1] * y + m[2] * z + m[3]
+            ny = m[4] * x + m[5] * y + m[6] * z + m[7]
+            nz = m[8] * x + m[9] * y + m[10] * z + m[11]
+            out.append((nx, ny, nz))
+        return out
     px, py, pz = prim.position
     sx, sy, sz = prim.scale
     out = []

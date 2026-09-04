@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from .models import ModelAsset, PrimitiveType
+from .models import ModelAsset, Primitive, PrimitiveType
 
 SEMANTIC_CLASSES = {
     "unclassified": {"id": 0, "name": "未分类", "rgb": (180, 180, 180)},
@@ -222,6 +222,16 @@ def export_obj_mesh(
             lines.append(f"l {v_offset} {v_offset + 1}")
             v_offset += 2
 
+    for prim in model.geometry.primitives:
+        if prim.type in (PrimitiveType.BOX, PrimitiveType.CYLINDER, PrimitiveType.CONE, PrimitiveType.SPHERE, PrimitiveType.TORUS):
+            for norm, p1, p2, p3 in primitive_to_triangles(prim):
+                lines.append(f"v {p1[0]:.4f} {p1[1]:.4f} {p1[2]:.4f}")
+                lines.append(f"v {p2[0]:.4f} {p2[1]:.4f} {p2[2]:.4f}")
+                lines.append(f"v {p3[0]:.4f} {p3[1]:.4f} {p3[2]:.4f}")
+                lines.append(f"vn {norm[0]:.4f} {norm[1]:.4f} {norm[2]:.4f}")
+                lines.append(f"f {v_offset} {v_offset+1} {v_offset+2}")
+                v_offset += 3
+
     # 2. 导出 STL 部件三角形
     stl_sources = stl_sources or []
     for src in stl_sources:
@@ -300,6 +310,10 @@ def export_stl_bytes(
                 norm = (0.0, 0.0, 1.0)
             transformed_triangles.append((norm, p1, p2, p3))
 
+    for prim in model.geometry.primitives:
+        if prim.type in (PrimitiveType.BOX, PrimitiveType.CYLINDER, PrimitiveType.CONE, PrimitiveType.SPHERE, PrimitiveType.TORUS):
+            transformed_triangles.extend(primitive_to_triangles(prim))
+
     if not transformed_triangles:
         for prim in model.geometry.primitives:
             if prim.type == PrimitiveType.LINE:
@@ -332,3 +346,151 @@ def export_stl_bytes(
 
     return header + bytes(body)
 
+
+def primitive_to_triangles(
+    prim: Primitive,
+) -> List[Tuple[Tuple[float, float, float], List[float], List[float], List[float]]]:
+    '''将参数化实体图元转换为三角面片列表，并应用空间变换。'''
+    raw_triangles = []
+    ptype = prim.type
+    params = prim.params or {}
+
+    if ptype == PrimitiveType.BOX:
+        w = float(params.get('width') or 0)
+        d = float(params.get('depth') or 0)
+        h = float(params.get('height') or 0)
+        w = w if w > 0 else 20.0
+        d = d if d > 0 else 20.0
+        h = h if h > 0 else 20.0
+        x0, x1 = -w / 2.0, w / 2.0
+        y0, y1 = -d / 2.0, d / 2.0
+        z0, z1 = 0.0, h
+        faces = [
+            ((0, 0, 1), [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]),
+            ((0, 0, -1), [x0, y1, z0], [x1, y1, z0], [x1, y0, z0], [x0, y0, z0]),
+            ((0, -1, 0), [x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]),
+            ((0, 1, 0), [x1, y1, z0], [x0, y1, z0], [x0, y1, z1], [x1, y1, z1]),
+            ((-1, 0, 0), [x0, y1, z0], [x0, y0, z0], [x0, y0, z1], [x0, y1, z1]),
+            ((1, 0, 0), [x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]),
+        ]
+        for norm, p1, p2, p3, p4 in faces:
+            raw_triangles.append((norm, p1, p2, p3))
+            raw_triangles.append((norm, p1, p3, p4))
+
+    elif ptype == PrimitiveType.CYLINDER:
+        r = float(params.get('radius') or 50.0)
+        h = float(params.get('height') or 100.0)
+        segs = 16
+        for i in range(segs):
+            a1 = 2.0 * math.pi * i / segs
+            a2 = 2.0 * math.pi * (i + 1) / segs
+            x1, y1 = r * math.cos(a1), r * math.sin(a1)
+            x2, y2 = r * math.cos(a2), r * math.sin(a2)
+            mid_a = (a1 + a2) / 2.0
+            n1 = (math.cos(mid_a), math.sin(mid_a), 0.0)
+            raw_triangles.append((n1, [x1, y1, 0.0], [x2, y2, 0.0], [x2, y2, h]))
+            raw_triangles.append((n1, [x1, y1, 0.0], [x2, y2, h], [x1, y1, h]))
+            raw_triangles.append(((0, 0, -1), [0.0, 0.0, 0.0], [x2, y2, 0.0], [x1, y1, 0.0]))
+            raw_triangles.append(((0, 0, 1), [0.0, 0.0, h], [x1, y1, h], [x2, y2, h]))
+
+    elif ptype == PrimitiveType.CONE:
+        r1 = float(params.get('radius') or 50.0)
+        r2 = float(params.get('radius2') or 0.0)
+        h = float(params.get('height') or 100.0)
+        segs = 16
+        for i in range(segs):
+            a1 = 2.0 * math.pi * i / segs
+            a2 = 2.0 * math.pi * (i + 1) / segs
+            x1, y1 = r1 * math.cos(a1), r1 * math.sin(a1)
+            x2, y2 = r1 * math.cos(a2), r1 * math.sin(a2)
+            tx1, ty1 = r2 * math.cos(a1), r2 * math.sin(a1)
+            tx2, ty2 = r2 * math.cos(a2), r2 * math.sin(a2)
+            mid_a = (a1 + a2) / 2.0
+            raw_triangles.append(((math.cos(mid_a), math.sin(mid_a), 0.0), [x1, y1, 0.0], [x2, y2, 0.0], [tx2, ty2, h]))
+            raw_triangles.append(((math.cos(mid_a), math.sin(mid_a), 0.0), [x1, y1, 0.0], [tx2, ty2, h], [tx1, ty1, h]))
+            if r1 > 0:
+                raw_triangles.append(((0, 0, -1), [0.0, 0.0, 0.0], [x2, y2, 0.0], [x1, y1, 0.0]))
+            if r2 > 0:
+                raw_triangles.append(((0, 0, 1), [0.0, 0.0, h], [tx1, ty1, h], [tx2, ty2, h]))
+
+    elif ptype == PrimitiveType.SPHERE:
+        r = float(params.get('radius') or 50.0)
+        rings = 10
+        sectors = 14
+        for i in range(rings):
+            lat1 = math.pi * (-0.5 + float(i) / rings)
+            lat2 = math.pi * (-0.5 + float(i + 1) / rings)
+            z1 = r * math.sin(lat1)
+            zr1 = r * math.cos(lat1)
+            z2 = r * math.sin(lat2)
+            zr2 = r * math.cos(lat2)
+            for j in range(sectors):
+                lng1 = 2.0 * math.pi * float(j) / sectors
+                lng2 = 2.0 * math.pi * float(j + 1) / sectors
+                p1 = [zr1 * math.cos(lng1), zr1 * math.sin(lng1), z1]
+                p2 = [zr1 * math.cos(lng2), zr1 * math.sin(lng2), z1]
+                p3 = [zr2 * math.cos(lng2), zr2 * math.sin(lng2), z2]
+                p4 = [zr2 * math.cos(lng1), zr2 * math.sin(lng1), z2]
+                n = (p1[0] / max(1.0, r), p1[1] / max(1.0, r), p1[2] / max(1.0, r))
+                raw_triangles.append((n, p1, p2, p3))
+                raw_triangles.append((n, p1, p3, p4))
+
+    elif ptype == PrimitiveType.TORUS:
+        R = float(params.get('major_radius') or 100.0)
+        r = float(params.get('minor_radius') or 20.0)
+        segs_r = 12
+        segs_t = 16
+        for i in range(segs_t):
+            u1 = 2.0 * math.pi * i / segs_t
+            u2 = 2.0 * math.pi * (i + 1) / segs_t
+            for j in range(segs_r):
+                v1 = 2.0 * math.pi * j / segs_r
+                v2 = 2.0 * math.pi * (j + 1) / segs_r
+                def torus_pt(u, v):
+                    return [(R + r * math.cos(v)) * math.cos(u), (R + r * math.cos(v)) * math.sin(u), r * math.sin(v)]
+                tp1 = torus_pt(u1, v1)
+                tp2 = torus_pt(u2, v1)
+                tp3 = torus_pt(u2, v2)
+                tp4 = torus_pt(u1, v2)
+                norm = (math.cos(v1) * math.cos(u1), math.cos(v1) * math.sin(u1), math.sin(v1))
+                raw_triangles.append((norm, tp1, tp2, tp3))
+                raw_triangles.append((norm, tp1, tp3, tp4))
+
+    out = []
+    m = prim.transform
+    pos = prim.position or [0.0, 0.0, 0.0]
+    for norm, p1, p2, p3 in raw_triangles:
+        if m and len(m) == 16:
+            def tf16(p):
+                return [
+                    m[0]*p[0] + m[4]*p[1] + m[8]*p[2] + m[12],
+                    m[1]*p[0] + m[5]*p[1] + m[9]*p[2] + m[13],
+                    m[2]*p[0] + m[6]*p[1] + m[10]*p[2] + m[14]
+                ]
+            def tfn16(n):
+                nx = m[0]*n[0] + m[4]*n[1] + m[8]*n[2]
+                ny = m[1]*n[0] + m[5]*n[1] + m[9]*n[2]
+                nz = m[2]*n[0] + m[6]*n[1] + m[10]*n[2]
+                l = math.sqrt(nx*nx + ny*ny + nz*nz)
+                return (nx/l, ny/l, nz/l) if l > 1e-6 else (0.0, 0.0, 1.0)
+            out.append((tfn16(norm), tf16(p1), tf16(p2), tf16(p3)))
+        elif m and len(m) >= 12:
+            def tf12(p):
+                return [
+                    m[0]*p[0] + m[1]*p[1] + m[2]*p[2] + m[3],
+                    m[4]*p[0] + m[5]*p[1] + m[6]*p[2] + m[7],
+                    m[8]*p[0] + m[9]*p[1] + m[10]*p[2] + m[11]
+                ]
+            def tfn12(n):
+                nx = m[0]*n[0] + m[1]*n[1] + m[2]*n[2]
+                ny = m[4]*n[0] + m[5]*n[1] + m[6]*n[2]
+                nz = m[8]*n[0] + m[9]*n[1] + m[10]*n[2]
+                l = math.sqrt(nx*nx + ny*ny + nz*nz)
+                return (nx/l, ny/l, nz/l) if l > 1e-6 else (0.0, 0.0, 1.0)
+            out.append((tfn12(norm), tf12(p1), tf12(p2), tf12(p3)))
+        else:
+            tp1 = [p1[0] + pos[0], p1[1] + pos[1], p1[2] + pos[2]]
+            tp2 = [p2[0] + pos[0], p2[1] + pos[1], p2[2] + pos[2]]
+            tp3 = [p3[0] + pos[0], p3[1] + pos[1], p3[2] + pos[2]]
+            out.append((norm, tp1, tp2, tp3))
+    return out

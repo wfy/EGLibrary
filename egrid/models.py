@@ -92,6 +92,7 @@ class Primitive(BaseModel):
     position: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
     rotation: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
     scale: List[float] = Field(default_factory=lambda: [1.0, 1.0, 1.0])
+    transform: Optional[List[float]] = None
     color: str = "#888888"
     material: str = "default"
 

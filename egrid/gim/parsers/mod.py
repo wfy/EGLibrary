@@ -108,16 +108,19 @@ def parse_mod_substation(text: str) -> list:
         transform = entity.find("TransformMatrix")
         if transform is not None and transform.get("Value"):
             try:
-                # 变电 XML 的 TransformMatrix 为规范行主序（平移在 3/7/11），
-                # 与 dev/phm/cbm 的厂商布局不同，不转置
                 m = [float(x) for x in transform.get("Value").replace(",", " ").split()]
-                if len(m) >= 12:
-                    return [m[3], m[7], m[11]]
+                if len(m) == 16:
+                    pos = [m[12], m[13], m[14]]
+                    if all(abs(v) < 1e-6 for v in pos) and any(abs(v) > 1e-6 for v in [m[3], m[7], m[11]]):
+                        pos = [m[3], m[7], m[11]]
+                    return pos, m
+                elif len(m) >= 12:
+                    return [m[3], m[7], m[11]], m
             except ValueError:
                 pass
-        return [0.0, 0.0, 0.0]
+        return [0.0, 0.0, 0.0], None
 
-    def _color(entity, default="#888888"):
+    def _color(entity, default="#888888"): 
         color = entity.find("Color")
         if color is None:
             return default
@@ -131,7 +134,7 @@ def parse_mod_substation(text: str) -> list:
     prims = []
     for entity in root.iter("Entity"):
         etype = (entity.get("Type") or "simple").lower()
-        pos = _matrix_pos(entity)
+        pos, mat = _matrix_pos(entity)
         if etype == "boolean":
             bool_node = entity.find("Boolean")
             if bool_node is None:
@@ -145,6 +148,7 @@ def parse_mod_substation(text: str) -> list:
                     "entity2": bool_node.get("Entity2", ""),
                 },
                 position=pos,
+                transform=mat,
                 color=_color(entity),
             ))
             continue
@@ -182,6 +186,7 @@ def parse_mod_substation(text: str) -> list:
                 type=ptype,
                 params=params,
                 position=pos,
+                transform=mat,
                 color=color_hex,
             ))
     return prims
