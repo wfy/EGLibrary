@@ -450,7 +450,11 @@ def _walk_level(files: dict, cbm_path: str, header: GimHeader,
     fields = extract_asset_fields(attributes)
     node_voltage = fields.get("voltage_level") or inherited_voltage
 
-    label = {"F1SYSTEM": "全线", "F2SYSTEM": "分段", "F3SYSTEM": "耐张段"}.get(entity, entity)
+    if header.kind == "substation":
+        label_map = {"F1SYSTEM": "全站", "F2SYSTEM": "区域", "F3SYSTEM": "子系统", "F4SYSTEM": "设备"}
+    else:
+        label_map = {"F1SYSTEM": "全线", "F2SYSTEM": "分段", "F3SYSTEM": "耐张段", "F4SYSTEM": "塔组"}
+    label = label_map.get(entity, entity)
     node = ModelAsset(
         name=f"{path_label} {_node_name(records, label)}",
         code=header.name,
@@ -542,6 +546,20 @@ def _handle_group(files: dict, group_path: str, header: GimHeader,
                     assets.append(s_asset)
     elif group_type == "CROSS":
         stats["cross"] = 1
+    elif records.get("OBJECTMODELPOINTER"):
+        dev_asset = _build_device_asset(files, group_path, header)
+        dev_asset.parent_id = f3_node.id
+        dev_asset.category = "变电"
+        dev_asset.voltage_level = dev_asset.voltage_level or f3_node.voltage_level or inherited_voltage
+        dev_name = dev_asset.name or ""
+        for kw, sub_name in [("变压器", "变压器"), ("断路器", "断路器"), ("隔离开关", "隔离开关"), ("互感器", "互感器"), ("绝缘子", "绝缘子串"), ("避雷器", "避雷器"), ("开关", "开关设备"), ("电容器", "变电设备"), ("电抗器", "变电设备")]:
+            if kw in dev_name:
+                dev_asset.subcategory = sub_name
+                break
+        if not dev_asset.subcategory:
+            dev_asset.subcategory = "设备"
+        assets.append(dev_asset)
+        stats["device_assets"] = stats.get("device_assets", 0) + 1
     return stats
 
 
