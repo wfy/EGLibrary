@@ -29,6 +29,8 @@ python -m egrid export <model-id> --out /tmp/model.gim
 # Web API
 uvicorn egrid.api:app --reload --port 8000
 # 打开 http://127.0.0.1:8000/docs
+
+python -m uvicorn egrid.api:app --reload --port 8000
 ```
 
 ## 项目结构
